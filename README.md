@@ -4,7 +4,13 @@ An open-world 3D Doctor Who fan game that runs in your browser. Explore four ful
 
 ![TARDIS console room](screenshots/tardis-console-room.jpg)
 
-## How to play
+## Play now
+
+**On any device (incl. phone, over WiFi or cellular):** https://skeyd87-rgb.github.io/doctor-who-echoes-of-time/
+
+On phones the game shows touch controls automatically — a thumbstick (left) to move, drag anywhere on the right to look, and **Sonic / Jump / E** buttons plus a pause button.
+
+## How to play (locally)
 
 **Double-click `index.html`.** That's it. (First launch needs an internet connection — the 3D engine loads from a CDN. If the screen stays black, serve the folder instead: `python -m http.server` then open http://localhost:8000.)
 
