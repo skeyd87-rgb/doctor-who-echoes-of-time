@@ -33,7 +33,13 @@ const G = {
   player:null, companion:null,
   camOverride:null,        // debug free camera {pos, yaw, pitch}
   voice:true, sound:true,
+  moveVec:null, touchRun:false,   // touch analog movement
 };
+{ const q=new URLSearchParams(location.search);
+  G.isTouch = q.has('touch') ? true : q.has('notouch') ? false
+    : (matchMedia('(pointer:coarse)').matches && !matchMedia('(pointer:fine)').matches) || (navigator.maxTouchPoints>1 && innerWidth<1100);
+  if(G.isTouch && !q.has('low') && !q.has('high')) G.quality='low';
+}
 window.DW = { G, THREE };  // debug handle
 
 /* ---------- renderer ---------- */
@@ -81,9 +87,9 @@ addEventListener('mousemove', e=>{
   G.yaw   -= e.movementX*G.sens;
   G.pitch = clamp(G.pitch - e.movementY*G.sens, -0.62, 0.95);
 });
-canvas.addEventListener('click', ()=>{ if(G.state==='play' && document.pointerLockElement!==canvas && !G.debug) canvas.requestPointerLock(); });
+canvas.addEventListener('click', ()=>{ if(G.state==='play' && document.pointerLockElement!==canvas && !G.debug && !G.isTouch) canvas.requestPointerLock(); });
 document.addEventListener('pointerlockchange', ()=>{
-  if(document.pointerLockElement!==canvas && G.state==='play' && !G.debug) pauseGame(true);
+  if(document.pointerLockElement!==canvas && G.state==='play' && !G.debug && !G.isTouch) pauseGame(true);
 });
 
 /* ---------- helpers: materials & geometry ---------- */

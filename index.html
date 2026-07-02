@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>Doctor Who: Echoes of Time</title>
 <style>
   :root{
@@ -112,6 +112,32 @@
   @keyframes pulse{from{transform:scale(.86)}to{transform:scale(1.12)}}
   #fade{z-index:34;background:#000;opacity:0;transition:opacity .4s}
   #whiteflash{z-index:36;background:#fff;opacity:0}
+
+  /* ---------- touch controls ---------- */
+  html.touch, html.touch body{overscroll-behavior:none;touch-action:none}
+  #touchui{position:fixed;inset:0;z-index:16;pointer-events:none}
+  #tstick{position:absolute;width:140px;height:140px;border-radius:50%;display:none;pointer-events:none;
+    background:radial-gradient(circle,rgba(74,158,255,.12),rgba(74,158,255,.03) 68%,transparent);
+    border:1.5px solid rgba(122,170,235,.4)}
+  #tstick-k{position:absolute;left:50%;top:50%;width:58px;height:58px;margin:-29px;border-radius:50%;
+    background:radial-gradient(circle,rgba(150,196,255,.7),rgba(40,80,150,.55));border:1.5px solid rgba(159,216,255,.75);
+    box-shadow:0 0 16px rgba(74,158,255,.4)}
+  #tbtns{position:absolute;right:calc(20px + env(safe-area-inset-right));bottom:calc(28px + env(safe-area-inset-bottom));
+    display:flex;flex-direction:column;align-items:center;gap:15px;pointer-events:auto}
+  .tbtn{pointer-events:auto;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent;touch-action:none;
+    display:flex;align-items:center;justify-content:center;border-radius:50%;width:76px;height:76px;
+    font-size:13px;letter-spacing:.1em;font-weight:700;color:#eaf2ff;
+    background:linear-gradient(180deg,rgba(30,58,102,.5),rgba(13,29,54,.58));border:1.5px solid rgba(122,170,235,.45);
+    box-shadow:0 2px 14px rgba(0,0,0,.45),inset 0 1px 0 rgba(255,255,255,.08)}
+  .tbtn.big{width:108px;height:108px;font-size:16px;border-color:rgba(159,216,255,.6)}
+  .tbtn.on{background:linear-gradient(180deg,rgba(78,146,224,.85),rgba(34,74,134,.85));border-color:#9fd8ff;transform:scale(.96)}
+  #tb-pause{position:absolute;left:calc(16px + env(safe-area-inset-left));top:calc(16px + env(safe-area-inset-top));width:48px;height:48px;font-size:15px;letter-spacing:0}
+  html.touch #minimap{width:104px;height:104px}
+  html.touch #zonechip{top:132px;width:104px}
+  html.touch #objective{max-width:60vw;font-size:12px;padding:8px 20px}
+  html.touch #gauge,html.touch #gauge-label{transform:scale(.82);transform-origin:bottom left}
+  html.touch #banter{bottom:150px;font-size:15px;max-width:88vw}
+  @media (max-width:820px){ #controls-card{display:none} }
 </style>
 </head>
 <body>
@@ -239,7 +265,13 @@ const G = {
   player:null, companion:null,
   camOverride:null,        // debug free camera {pos, yaw, pitch}
   voice:true, sound:true,
+  moveVec:null, touchRun:false,   // touch analog movement
 };
+{ const q=new URLSearchParams(location.search);
+  G.isTouch = q.has('touch') ? true : q.has('notouch') ? false
+    : (matchMedia('(pointer:coarse)').matches && !matchMedia('(pointer:fine)').matches) || (navigator.maxTouchPoints>1 && innerWidth<1100);
+  if(G.isTouch && !q.has('low') && !q.has('high')) G.quality='low';
+}
 window.DW = { G, THREE };  // debug handle
 
 /* ---------- renderer ---------- */
@@ -287,9 +319,9 @@ addEventListener('mousemove', e=>{
   G.yaw   -= e.movementX*G.sens;
   G.pitch = clamp(G.pitch - e.movementY*G.sens, -0.62, 0.95);
 });
-canvas.addEventListener('click', ()=>{ if(G.state==='play' && document.pointerLockElement!==canvas && !G.debug) canvas.requestPointerLock(); });
+canvas.addEventListener('click', ()=>{ if(G.state==='play' && document.pointerLockElement!==canvas && !G.debug && !G.isTouch) canvas.requestPointerLock(); });
 document.addEventListener('pointerlockchange', ()=>{
-  if(document.pointerLockElement!==canvas && G.state==='play' && !G.debug) pauseGame(true);
+  if(document.pointerLockElement!==canvas && G.state==='play' && !G.debug && !G.isTouch) pauseGame(true);
 });
 
 /* ---------- helpers: materials & geometry ---------- */
@@ -2916,7 +2948,7 @@ function pauseGame(fromLock){
 function resumeGame(){
   $('pause').classList.add('hidden');
   G.state='play';
-  if(!G.debug) canvas.requestPointerLock();
+  if(!G.debug && !G.isTouch) canvas.requestPointerLock();
 }
 $('p-resume').onclick=resumeGame;
 $('p-quality').onchange=e=>{ G.quality=e.target.value; applyQuality(); saveGame(); };
@@ -3041,8 +3073,9 @@ function updatePlayer(dt){
   if(playing){
     if(G.keys.KeyW||G.keys.ArrowUp)iz+=1; if(G.keys.KeyS||G.keys.ArrowDown)iz-=1;
     if(G.keys.KeyA||G.keys.ArrowLeft)ix-=1; if(G.keys.KeyD||G.keys.ArrowRight)ix+=1;
+    if(G.moveVec){ ix+=G.moveVec.x; iz+=G.moveVec.z; }
   }
-  const run=!!G.keys.ShiftLeft||!!G.keys.ShiftRight;
+  const run=!!G.keys.ShiftLeft||!!G.keys.ShiftRight||G.touchRun;
   const mag=Math.hypot(ix,iz);
   let speed=0;
   if(mag>0){
@@ -3246,7 +3279,7 @@ function startFinale(){
 $('ending-continue').onclick=()=>{
   $('ending').classList.add('hidden');
   G.state='play';
-  if(!G.debug) canvas.requestPointerLock();
+  if(!G.debug && !G.isTouch) canvas.requestPointerLock();
   toastMsg('THE ADVENTURE CONTINUES','all of time and space');
 };
 
@@ -3317,7 +3350,7 @@ function startGame(fromSave){
   UI.hud.classList.remove('hidden');
   switchZone(sv?(sv.zoneId||'london'):'london');
   G.state='play';
-  if(!G.debug) canvas.requestPointerLock();
+  if(!G.debug && !G.isTouch) canvas.requestPointerLock();
   if(!sv) setTimeout(()=>banter('b_hello','So this is 1963! Smells like rain and coal. Where do we start, Doctor?',2500),0);
 }
 $('b-start').onclick=()=>{ localStorage.removeItem('dw_echoes_save'); startGame(false); };
@@ -3404,6 +3437,81 @@ function loop(now){
 }
 _rafId=requestAnimationFrame(loop);
 setInterval(()=>{ if(performance.now()-_last>400) loop(performance.now()); }, 300);   // keep ticking in hidden tabs
+
+/* ============================== 11 TOUCH CONTROLS ============================== */
+if(G.isTouch){
+  document.documentElement.classList.add('touch');
+  const cc=document.getElementById('controls-card'); if(cc) cc.style.display='none';
+
+  const wrap=document.createElement('div'); wrap.id='touchui';
+  wrap.innerHTML=`
+    <div id="tstick"><div id="tstick-k"></div></div>
+    <div id="tbtns">
+      <div class="tbtn" id="tb-jump">JUMP</div>
+      <div class="tbtn" id="tb-act">E</div>
+      <div class="tbtn big" id="tb-sonic">SONIC</div>
+    </div>
+    <div id="tb-pause" class="tbtn">II</div>`;
+  document.body.appendChild(wrap);
+
+  const stick=document.getElementById('tstick'), knob=document.getElementById('tstick-k');
+  const btns=document.getElementById('tbtns'), pauseBtn=document.getElementById('tb-pause'), actBtn=document.getElementById('tb-act');
+  const R=58; let moveId=null, lookId=null, ox=0, oy=0, lx=0, ly=0;
+
+  const showStick=(x,y)=>{ ox=x; oy=y; stick.style.left=(x-70)+'px'; stick.style.top=(y-70)+'px'; stick.style.display='block'; knob.style.transform='translate(0,0)'; };
+  const hideStick=()=>{ stick.style.display='none'; G.moveVec=null; G.touchRun=false; };
+  const isBtn=t=> t && t.closest && t.closest('.tbtn');
+
+  addEventListener('touchstart', e=>{
+    if(G.state!=='play') return;
+    for(const t of e.changedTouches){
+      if(isBtn(t.target)) continue;
+      if(t.clientX < innerWidth*0.5 && moveId===null){ moveId=t.identifier; showStick(t.clientX,t.clientY); e.preventDefault(); }
+      else if(t.clientX >= innerWidth*0.5 && lookId===null){ lookId=t.identifier; lx=t.clientX; ly=t.clientY; e.preventDefault(); }
+    }
+  }, {passive:false});
+
+  addEventListener('touchmove', e=>{
+    for(const t of e.changedTouches){
+      if(t.identifier===moveId){
+        let dx=t.clientX-ox, dy=t.clientY-oy; const d=Math.hypot(dx,dy)||1, cl=Math.min(d,R);
+        const nx=dx/d*cl, ny=dy/d*cl;
+        knob.style.transform=`translate(${nx}px,${ny}px)`;
+        G.moveVec={ x:nx/R, z:-ny/R }; G.touchRun = d/R>0.72;
+        e.preventDefault();
+      } else if(t.identifier===lookId){
+        G.yaw   -= (t.clientX-lx)*0.006;
+        G.pitch = Math.max(-0.62, Math.min(0.95, G.pitch-(t.clientY-ly)*0.006));
+        lx=t.clientX; ly=t.clientY; e.preventDefault();
+      }
+    }
+  }, {passive:false});
+
+  const end=e=>{ for(const t of e.changedTouches){
+    if(t.identifier===moveId){ moveId=null; hideStick(); }
+    if(t.identifier===lookId){ lookId=null; } } };
+  addEventListener('touchend', end); addEventListener('touchcancel', end);
+
+  const bind=(id,down,up)=>{ const el=document.getElementById(id);
+    el.addEventListener('touchstart',e=>{ e.preventDefault(); e.stopPropagation(); el.classList.add('on'); down&&down(); },{passive:false});
+    const off=e=>{ e.preventDefault(); e.stopPropagation(); el.classList.remove('on'); up&&up(); };
+    el.addEventListener('touchend',off,{passive:false}); el.addEventListener('touchcancel',off,{passive:false});
+  };
+  bind('tb-sonic', ()=>G.sonicHeld=true, ()=>G.sonicHeld=false);
+  bind('tb-jump',  ()=>{ G.pressed.Space=true; });
+  bind('tb-act',   ()=>{ G.pressed.KeyE=true; });
+  bind('tb-pause', ()=>{ if(G.state==='play') pauseGame(); else if(G.state==='paused') resumeGame(); });
+
+  const prompt=document.getElementById('prompt');
+  setInterval(()=>{                         // interval, not rAF — survives backgrounded tabs
+    const play=G.state==='play';
+    btns.style.display  = play?'flex':'none';
+    stick.style.opacity = play?'1':'0';
+    pauseBtn.style.display = (play||G.state==='paused')?'flex':'none';
+    actBtn.style.visibility = prompt.classList.contains('hidden')?'hidden':'visible';
+    if(!play){ if(moveId===null) hideStick(); G.moveVec=null; G.touchRun=false; }
+  }, 110);
+}
 
 
 </script>

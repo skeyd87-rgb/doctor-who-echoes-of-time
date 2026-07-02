@@ -215,7 +215,7 @@ function pauseGame(fromLock){
 function resumeGame(){
   $('pause').classList.add('hidden');
   G.state='play';
-  if(!G.debug) canvas.requestPointerLock();
+  if(!G.debug && !G.isTouch) canvas.requestPointerLock();
 }
 $('p-resume').onclick=resumeGame;
 $('p-quality').onchange=e=>{ G.quality=e.target.value; applyQuality(); saveGame(); };

@@ -96,7 +96,7 @@ function startFinale(){
 $('ending-continue').onclick=()=>{
   $('ending').classList.add('hidden');
   G.state='play';
-  if(!G.debug) canvas.requestPointerLock();
+  if(!G.debug && !G.isTouch) canvas.requestPointerLock();
   toastMsg('THE ADVENTURE CONTINUES','all of time and space');
 };
 
@@ -167,7 +167,7 @@ function startGame(fromSave){
   UI.hud.classList.remove('hidden');
   switchZone(sv?(sv.zoneId||'london'):'london');
   G.state='play';
-  if(!G.debug) canvas.requestPointerLock();
+  if(!G.debug && !G.isTouch) canvas.requestPointerLock();
   if(!sv) setTimeout(()=>banter('b_hello','So this is 1963! Smells like rain and coal. Where do we start, Doctor?',2500),0);
 }
 $('b-start').onclick=()=>{ localStorage.removeItem('dw_echoes_save'); startGame(false); };

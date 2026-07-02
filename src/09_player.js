@@ -97,8 +97,9 @@ function updatePlayer(dt){
   if(playing){
     if(G.keys.KeyW||G.keys.ArrowUp)iz+=1; if(G.keys.KeyS||G.keys.ArrowDown)iz-=1;
     if(G.keys.KeyA||G.keys.ArrowLeft)ix-=1; if(G.keys.KeyD||G.keys.ArrowRight)ix+=1;
+    if(G.moveVec){ ix+=G.moveVec.x; iz+=G.moveVec.z; }
   }
-  const run=!!G.keys.ShiftLeft||!!G.keys.ShiftRight;
+  const run=!!G.keys.ShiftLeft||!!G.keys.ShiftRight||G.touchRun;
   const mag=Math.hypot(ix,iz);
   let speed=0;
   if(mag>0){
