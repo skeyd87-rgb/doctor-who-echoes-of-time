@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Doctor Who: Echoes of Time</title>
+<style>
+  :root{
+    --blue:#4a9eff; --deepblue:#0d3a6b; --gold:#d4af37; --ink:#e8ecf4;
+    --panel:rgba(8,14,26,.88); --panel2:rgba(14,22,40,.94);
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:'Segoe UI',system-ui,sans-serif;color:var(--ink)}
+  #c{display:block;width:100%;height:100%}
+  .ov{position:fixed;inset:0;pointer-events:none;user-select:none}
+  .hidden{display:none!important}
+
+  /* ---------- start screen ---------- */
+  #start{background:radial-gradient(ellipse at 50% 35%, #10233f 0%, #060a14 55%, #020308 100%);pointer-events:auto;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:50}
+  #start canvas{position:absolute;inset:0;width:100%;height:100%}
+  .title-wrap{position:relative;text-align:center;z-index:2}
+  #start h1{font-size:clamp(38px,7vw,84px);font-weight:800;letter-spacing:.14em;text-transform:uppercase;
+    background:linear-gradient(180deg,#cfe4ff 0%,#7db4f5 45%,#274f86 100%);-webkit-background-clip:text;background-clip:text;color:transparent;
+    filter:drop-shadow(0 0 26px rgba(74,158,255,.45));line-height:1.02}
+  #start h2{font-size:clamp(15px,2.2vw,26px);font-weight:300;letter-spacing:.62em;text-transform:uppercase;color:#9fb6d8;margin-top:10px;text-indent:.62em}
+  .menu{margin-top:44px;display:flex;flex-direction:column;gap:12px;align-items:center;z-index:2;position:relative}
+  .btn{pointer-events:auto;cursor:pointer;min-width:280px;text-align:center;padding:13px 34px;font-size:17px;letter-spacing:.22em;text-transform:uppercase;
+    color:var(--ink);background:linear-gradient(180deg,rgba(30,58,102,.55),rgba(13,29,54,.55));border:1px solid rgba(122,170,235,.45);border-radius:4px;
+    transition:all .18s;backdrop-filter:blur(3px)}
+  .btn:hover{background:linear-gradient(180deg,rgba(52,96,164,.7),rgba(20,44,84,.7));border-color:#8fc1ff;box-shadow:0 0 22px rgba(74,158,255,.35);transform:translateY(-1px)}
+  .btn.gold{border-color:rgba(212,175,55,.55)} .btn.gold:hover{box-shadow:0 0 22px rgba(212,175,55,.3);border-color:var(--gold)}
+  .fineprint{margin-top:34px;font-size:11.5px;color:#5f7292;letter-spacing:.08em;text-align:center;z-index:2;line-height:1.7}
+  #controls-card{margin-top:26px;display:grid;grid-template-columns:auto auto;gap:5px 22px;font-size:13px;color:#a9bcd8;z-index:2;background:rgba(6,10,20,.5);padding:16px 26px;border:1px solid rgba(122,170,235,.18);border-radius:6px}
+  #controls-card b{color:#dfe9ff;font-weight:600;text-align:right}
+  .selrow{display:flex;gap:10px;align-items:center;font-size:13px;color:#a9bcd8;letter-spacing:.1em}
+  .selrow select{pointer-events:auto;background:#0d1b30;color:var(--ink);border:1px solid rgba(122,170,235,.4);padding:6px 10px;border-radius:4px;font-size:13px}
+
+  /* ---------- HUD ---------- */
+  #hud{z-index:10}
+  #xh{position:absolute;left:50%;top:50%;width:5px;height:5px;margin:-2.5px;border-radius:50%;background:rgba(232,236,244,.85);box-shadow:0 0 6px rgba(0,0,0,.9);transition:transform .12s}
+  #xh.big{transform:scale(2.1);background:var(--blue)}
+  #gauge{position:absolute;left:26px;bottom:24px;width:104px;height:104px}
+  #gauge-label{position:absolute;left:26px;bottom:8px;width:104px;text-align:center;font-size:9.5px;letter-spacing:.28em;color:#c9b46a;text-transform:uppercase}
+  #frags{position:absolute;left:146px;bottom:44px;display:flex;gap:9px}
+  .frag{width:17px;height:17px;transform:rotate(45deg);border:1.5px solid rgba(212,175,55,.5);background:rgba(20,20,20,.4)}
+  .frag.got{background:radial-gradient(circle,#ffe9a8,#d4af37);box-shadow:0 0 12px rgba(212,175,55,.8);border-color:#ffe9a8}
+  #objective{position:absolute;top:22px;left:50%;transform:translateX(-50%);max-width:640px;text-align:center;font-size:14.5px;letter-spacing:.14em;color:#dfe9ff;
+    background:linear-gradient(90deg,transparent,rgba(8,14,26,.78) 18%,rgba(8,14,26,.78) 82%,transparent);padding:9px 44px;text-transform:uppercase;transition:opacity .5s}
+  #objective small{display:block;font-size:10.5px;color:#8fa5c8;letter-spacing:.3em;margin-bottom:3px}
+  #prompt{position:absolute;left:50%;top:58%;transform:translateX(-50%);font-size:15px;color:#eaf2ff;background:var(--panel);padding:9px 20px;border:1px solid rgba(122,170,235,.35);border-radius:4px;letter-spacing:.06em}
+  #prompt b{color:var(--blue);font-weight:700}
+  #banter{position:absolute;left:50%;bottom:118px;transform:translateX(-50%);max-width:720px;text-align:center;font-size:16.5px;color:#f2f6ff;text-shadow:0 2px 8px #000, 0 0 24px rgba(0,0,0,.9);font-style:italic;letter-spacing:.02em;line-height:1.45}
+  #banter b{font-style:normal;color:var(--blue);letter-spacing:.08em}
+  #banter b.gold{color:var(--gold)}
+  #toast{position:absolute;left:50%;top:33%;transform:translateX(-50%);text-align:center;opacity:0;transition:opacity 1s}
+  #toast .t1{font-size:clamp(30px,4.6vw,54px);font-weight:800;letter-spacing:.3em;text-transform:uppercase;color:#eef4ff;text-shadow:0 0 34px rgba(74,158,255,.55),0 3px 14px #000;text-indent:.3em}
+  #toast .t2{font-size:14px;letter-spacing:.5em;color:#9fb6d8;text-transform:uppercase;margin-top:8px;text-indent:.5em}
+  #vig{position:fixed;inset:0;pointer-events:none;background:radial-gradient(ellipse at center,transparent 52%,rgba(150,10,10,.55) 100%);opacity:0;transition:opacity .25s;z-index:9}
+  #goldvig{position:fixed;inset:0;pointer-events:none;background:radial-gradient(ellipse at center,transparent 30%,rgba(230,180,60,.5) 100%);opacity:0;transition:opacity .6s;z-index:9}
+  #minimap{position:absolute;right:24px;top:22px;width:148px;height:148px;border-radius:50%;border:1.5px solid rgba(122,170,235,.35);background:rgba(6,10,20,.55);box-shadow:0 0 20px rgba(0,0,0,.5)}
+  #zonechip{position:absolute;right:24px;top:178px;width:148px;text-align:center;font-size:10px;letter-spacing:.26em;color:#8fa5c8;text-transform:uppercase}
+  #sonicring{position:absolute;left:50%;top:50%;width:56px;height:56px;margin:-28px;pointer-events:none}
+
+  /* ---------- dialogue ---------- */
+  #dlg{z-index:20;pointer-events:none}
+  #dlg-panel{position:absolute;left:50%;bottom:34px;transform:translateX(-50%);width:min(860px,92vw);background:var(--panel2);border:1px solid rgba(122,170,235,.3);border-top:2px solid var(--blue);border-radius:6px;padding:20px 28px 16px;pointer-events:auto;box-shadow:0 12px 44px rgba(0,0,0,.6)}
+  #dlg-name{font-size:13px;letter-spacing:.3em;text-transform:uppercase;color:var(--blue);font-weight:700;margin-bottom:8px}
+  #dlg-text{font-size:17.5px;line-height:1.55;color:#eef2fa;min-height:54px}
+  #dlg-riley{font-size:14.5px;font-style:italic;color:#d8a8b8;margin-top:9px;display:none}
+  #dlg-riley b{font-style:normal;color:#e87a9a;letter-spacing:.06em}
+  #dlg-opts{margin-top:14px;display:flex;flex-direction:column;gap:7px}
+  .dlg-opt{cursor:pointer;padding:9px 16px;font-size:15px;color:#cfe0f8;border:1px solid rgba(122,170,235,.22);border-radius:4px;background:rgba(20,36,64,.35);transition:all .13s}
+  .dlg-opt:hover{background:rgba(45,80,140,.5);border-color:#8fc1ff;padding-left:22px}
+  .dlg-opt .num{color:var(--blue);font-weight:700;margin-right:10px}
+  #dlg-more{margin-top:12px;font-size:12px;color:#7d93b8;letter-spacing:.2em;text-transform:uppercase;text-align:right}
+
+  /* ---------- travel ---------- */
+  #travel{z-index:30;background:rgba(3,6,12,.82);backdrop-filter:blur(6px);pointer-events:auto;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:34px}
+  #travel h3{font-size:21px;letter-spacing:.5em;text-transform:uppercase;color:#bcd2f2;font-weight:300;text-indent:.5em}
+  #travel h3 b{color:var(--blue);font-weight:700}
+  #dests{display:flex;gap:18px;flex-wrap:wrap;justify-content:center;max-width:1100px}
+  .dest{cursor:pointer;width:198px;padding:20px 18px 16px;background:linear-gradient(180deg,rgba(20,36,66,.75),rgba(9,16,30,.85));border:1px solid rgba(122,170,235,.3);border-radius:8px;transition:all .16s;text-align:left}
+  .dest:hover{transform:translateY(-4px);border-color:#8fc1ff;box-shadow:0 10px 34px rgba(74,158,255,.25)}
+  .dest.here{opacity:.45;pointer-events:none}
+  .dest .d-era{font-size:10px;letter-spacing:.3em;color:#8fa5c8;text-transform:uppercase}
+  .dest .d-name{font-size:19px;font-weight:700;color:#eef4ff;margin:7px 0 9px;letter-spacing:.04em}
+  .dest .d-desc{font-size:12.5px;color:#a9bcd8;line-height:1.5;min-height:56px}
+  .dest .d-status{margin-top:11px;font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;padding:4px 9px;border-radius:3px;display:inline-block}
+  .d-status.s0{color:#8fa5c8;border:1px solid rgba(143,165,200,.3)}
+  .d-status.s1{color:#7fc4ff;border:1px solid rgba(127,196,255,.4)}
+  .d-status.s2{color:#ffdf8f;border:1px solid rgba(212,175,55,.5)}
+  #travel .cancel{margin-top:6px}
+
+  /* ---------- pause / ending / error ---------- */
+  #pause{z-index:40;background:rgba(3,6,12,.78);backdrop-filter:blur(5px);pointer-events:auto;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px}
+  #pause h3{font-size:26px;letter-spacing:.5em;text-transform:uppercase;color:#dfe9ff;font-weight:300;margin-bottom:18px;text-indent:.5em}
+  #ending{z-index:60;background:radial-gradient(ellipse at 50% 40%,#1a2e52 0%,#060a14 60%,#000 100%);pointer-events:auto;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:0 8vw}
+  #ending h2{font-size:clamp(28px,4.5vw,52px);letter-spacing:.24em;text-transform:uppercase;font-weight:800;background:linear-gradient(180deg,#ffe9a8,#d4af37);-webkit-background-clip:text;background-clip:text;color:transparent;filter:drop-shadow(0 0 26px rgba(212,175,55,.4))}
+  #ending p{margin-top:22px;font-size:17px;line-height:1.8;color:#c6d4ec;max-width:680px}
+  #err{z-index:99;background:rgba(10,2,2,.93);pointer-events:auto;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:40px}
+  #err h3{color:#ff9a9a;font-size:20px;letter-spacing:.1em;margin-bottom:14px}
+  #err pre{color:#e8b8b8;font-size:12.5px;max-width:80vw;white-space:pre-wrap;line-height:1.6}
+
+  /* ---------- vortex ---------- */
+  #vortex{z-index:35;opacity:0;transition:opacity .45s;background:#02040a;display:flex;align-items:center;justify-content:center;overflow:hidden}
+  #vortex .swirl{position:absolute;width:190vmax;height:190vmax;border-radius:50%;
+    background:conic-gradient(from 0deg,#020617,#0a2a5e,#1e63c4,#7db4f5,#0a2a5e,#020617,#123d84,#4a9eff,#020617);
+    animation:spin 1.05s linear infinite;filter:blur(14px) saturate(1.3)}
+  #vortex .swirl.s2{width:120vmax;height:120vmax;animation-duration:.7s;animation-direction:reverse;opacity:.7;filter:blur(8px)}
+  #vortex .core{position:absolute;width:26vmin;height:26vmin;border-radius:50%;background:radial-gradient(circle,#fff 0%,#bcd9ff 30%,transparent 70%);filter:blur(6px);animation:pulse .5s ease-in-out infinite alternate}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  @keyframes pulse{from{transform:scale(.86)}to{transform:scale(1.12)}}
+  #fade{z-index:34;background:#000;opacity:0;transition:opacity .4s}
+  #whiteflash{z-index:36;background:#fff;opacity:0}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div id="hud" class="ov hidden">
+  <div id="xh"></div>
+  <canvas id="gauge" width="208" height="208"></canvas>
+  <div id="gauge-label">Regeneration</div>
+  <div id="frags"><div class="frag"></div><div class="frag"></div><div class="frag"></div><div class="frag"></div></div>
+  <div id="objective"><small>Objective</small><span id="obj-text"></span></div>
+  <div id="prompt" class="hidden"></div>
+  <div id="banter"></div>
+  <div id="toast"><div class="t1"></div><div class="t2"></div></div>
+  <canvas id="minimap" width="296" height="296"></canvas>
+  <div id="zonechip"></div>
+</div>
+<div id="vig"></div>
+<div id="goldvig"></div>
+
+<div id="dlg" class="ov hidden">
+  <div id="dlg-panel">
+    <div id="dlg-name"></div>
+    <div id="dlg-text"></div>
+    <div id="dlg-riley"><b>RILEY</b> <span></span></div>
+    <div id="dlg-opts"></div>
+    <div id="dlg-more">E / click — continue</div>
+  </div>
+</div>
+
+<div id="travel" class="ov hidden">
+  <h3>TARDIS <b>NAVIGATION</b></h3>
+  <div id="dests"></div>
+  <div class="btn cancel" id="travel-cancel">Stay Here</div>
+</div>
+
+<div id="vortex" class="ov hidden"><div class="swirl"></div><div class="swirl s2"></div><div class="core"></div></div>
+<div id="fade" class="ov"></div>
+<div id="whiteflash" class="ov"></div>
+
+<div id="pause" class="ov hidden">
+  <h3>Paused</h3>
+  <div class="btn" id="p-resume">Resume</div>
+  <div class="selrow">Quality <select id="p-quality"><option value="high">High</option><option value="low">Low</option></select></div>
+  <div class="selrow">Dalek voice <select id="p-voice"><option value="on">On</option><option value="off">Off</option></select></div>
+  <div class="selrow">Sound <select id="p-sound"><option value="on">On</option><option value="off">Off</option></select></div>
+  <div class="btn" id="p-restart">Restart Adventure</div>
+</div>
+
+<div id="ending" class="ov hidden">
+  <h2>The Timeline Is Safe</h2>
+  <p id="ending-text"></p>
+  <div class="btn gold" id="ending-continue" style="margin-top:36px">Keep Exploring</div>
+</div>
+
+<div id="err" class="ov hidden"><h3>The TARDIS hit turbulence</h3><pre id="err-text"></pre><pre style="margin-top:18px;color:#c99">If this mentions loading/imports: connect to the internet once (3D engine loads from CDN),
+or serve the folder with:  python -m http.server  and open http://localhost:8000</pre></div>
+
+<div id="start" class="ov">
+  <canvas id="starfield"></canvas>
+  <div class="title-wrap">
+    <h1>Doctor Who</h1>
+    <h2>Echoes of Time</h2>
+  </div>
+  <div class="menu">
+    <div class="btn" id="b-start">Begin Adventure</div>
+    <div class="btn hidden" id="b-continue">Continue</div>
+    <div class="selrow">Quality <select id="s-quality"><option value="high">High</option><option value="low">Low</option></select></div>
+  </div>
+  <div id="controls-card">
+    <b>W A S D</b><span>move</span>
+    <b>Mouse</b><span>look</span>
+    <b>Shift</b><span>run</span>
+    <b>Space</b><span>jump</span>
+    <b>E</b><span>talk · interact</span>
+    <b>Hold Left Click</b><span>sonic screwdriver</span>
+    <b>Esc</b><span>pause</span>
+  </div>
+  <div class="fineprint">A non-commercial fan tribute · Doctor Who is © BBC<br>Best in Chrome/Edge · needs internet on first load</div>
+</div>
+
+<script type="importmap">
+{"imports":{
+  "three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+  "three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+}}
+</script>
+<script>
+window.addEventListener('error',e=>{const el=document.getElementById('err');if(el&&e.message){el.classList.remove('hidden');document.getElementById('err-text').textContent=(e.message||'')+'\n'+(e.filename||'')+':'+(e.lineno||'');}});
+</script>
+<script type="module">
