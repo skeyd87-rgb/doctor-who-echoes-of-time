@@ -95,7 +95,8 @@ function updatePlayer(dt){
   // input
   let ix=0, iz=0;
   if(playing){
-    if(G.keys.KeyW)iz+=1; if(G.keys.KeyS)iz-=1; if(G.keys.KeyA)ix-=1; if(G.keys.KeyD)ix+=1;
+    if(G.keys.KeyW||G.keys.ArrowUp)iz+=1; if(G.keys.KeyS||G.keys.ArrowDown)iz-=1;
+    if(G.keys.KeyA||G.keys.ArrowLeft)ix-=1; if(G.keys.KeyD||G.keys.ArrowRight)ix+=1;
   }
   const run=!!G.keys.ShiftLeft||!!G.keys.ShiftRight;
   const mag=Math.hypot(ix,iz);
@@ -103,8 +104,8 @@ function updatePlayer(dt){
   if(mag>0){
     ix/=mag; iz/=mag;
     speed=(run?6.1:3.3)*(PL.sonicOn?0.55:1);
-    const wx=Math.sin(G.yaw)*iz+Math.sin(G.yaw+PI/2)*ix;
-    const wz=Math.cos(G.yaw)*iz+Math.cos(G.yaw+PI/2)*ix;
+    const wx=Math.sin(G.yaw)*iz+Math.sin(G.yaw-PI/2)*ix;
+    const wz=Math.cos(G.yaw)*iz+Math.cos(G.yaw-PI/2)*ix;
     pos.x+=wx*speed*dt; pos.z+=wz*speed*dt;
     const face=Math.atan2(wx,wz);
     P.root.rotation.y=angDamp(P.root.rotation.y, face, 11, dt);

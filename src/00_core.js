@@ -71,7 +71,7 @@ addEventListener('resize', resize); resize();
 addEventListener('keydown', e=>{
   if(e.repeat) return;
   G.keys[e.code]=true; G.pressed[e.code]=true;
-  if(e.code==='Tab') e.preventDefault();
+  if(e.code==='Tab'||e.code==='ArrowUp'||e.code==='ArrowDown'||e.code==='ArrowLeft'||e.code==='ArrowRight'||e.code==='Space') e.preventDefault();
 });
 addEventListener('keyup', e=>{ G.keys[e.code]=false; });
 addEventListener('mousedown', e=>{ if(e.button===0) G.sonicHeld=true; });
