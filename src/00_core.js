@@ -5,6 +5,7 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import * as BufferGeometryUtils from 'three/addons/utils/BufferGeometryUtils.js';
 
 const TAU = Math.PI*2, PI = Math.PI;
@@ -53,12 +54,18 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 
 const camera = new THREE.PerspectiveCamera(62, innerWidth/innerHeight, 0.08, 900);
-const composer = new EffectComposer(renderer);
+// HDR, multisampled composer target -> real anti-aliasing + better bloom
+const _sz = renderer.getDrawingBufferSize(new THREE.Vector2());
+const _ct = new THREE.WebGLRenderTarget(_sz.x, _sz.y, {type:THREE.HalfFloatType, samples: G.isTouch?2:4});
+const composer = new EffectComposer(renderer, _ct);
 const renderPass = new RenderPass(new THREE.Scene(), camera);
-const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth,innerHeight), 0.42, 0.55, 0.82);
+const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth,innerHeight), 0.5, 0.5, 0.82);
 composer.addPass(renderPass);
 composer.addPass(bloom);
 composer.addPass(new OutputPass());
+// image-based lighting: subtle studio environment gives PBR materials real reflections
+const _pmrem = new THREE.PMREMGenerator(renderer);
+const ENV = _pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
 
 function applyQuality(){
   const hi = G.quality==='high', min = G.perfMin;
@@ -113,7 +120,7 @@ function rbox(w,h,d,r,mat,seg=3){ return shadows(new THREE.Mesh(new RoundedBoxGe
 function cyl(rt,rb,h,mat,seg=20,open=false){ return shadows(new THREE.Mesh(new THREE.CylinderGeometry(rt,rb,h,seg,1,open), mat)); }
 function sph(r,mat,ws=18,hs=13){ return shadows(new THREE.Mesh(new THREE.SphereGeometry(r,ws,hs), mat)); }
 function hemi(r,mat,ws=20){ return shadows(new THREE.Mesh(new THREE.SphereGeometry(r,ws,12,0,TAU,0,PI/2), mat)); }
-function cap(r,len,mat){ return shadows(new THREE.Mesh(new THREE.CapsuleGeometry(r,len,5,12), mat)); }
+function cap(r,len,mat){ return shadows(new THREE.Mesh(new THREE.CapsuleGeometry(r,len,7,20), mat)); }
 function cone(r,h,mat,seg=16){ return shadows(new THREE.Mesh(new THREE.ConeGeometry(r,h,seg), mat)); }
 function tor(r,t,mat,s1=12,s2=24){ return shadows(new THREE.Mesh(new THREE.TorusGeometry(r,t,s1,s2), mat)); }
 function pl(w,h,mat){ const m=new THREE.Mesh(new THREE.PlaneGeometry(w,h), mat); m.receiveShadow=true; return m; }

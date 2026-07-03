@@ -143,6 +143,9 @@ function buildWorld(){
   G.player=mkDoctor();
   G.companion=mkRiley();
   buildLondon(); buildTardisInterior(); buildSkaro(); buildMoonbase(); buildGraveyard();
+  // image-based lighting per zone (reflections + material depth); brighter zones get more
+  const envInt={london:0.30, tardis:0.45, skaro:0.55, moon:0.55, grave:0.28};
+  for(const id in G.zones){ const s=G.zones[id].scene; s.environment=ENV; s.environmentIntensity=envInt[id]??0.35; }
   recountFragments();
 }
 function startGame(fromSave){

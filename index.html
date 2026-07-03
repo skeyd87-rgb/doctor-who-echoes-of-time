@@ -237,6 +237,7 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import * as BufferGeometryUtils from 'three/addons/utils/BufferGeometryUtils.js';
 
 const TAU = Math.PI*2, PI = Math.PI;
@@ -285,12 +286,18 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 
 const camera = new THREE.PerspectiveCamera(62, innerWidth/innerHeight, 0.08, 900);
-const composer = new EffectComposer(renderer);
+// HDR, multisampled composer target -> real anti-aliasing + better bloom
+const _sz = renderer.getDrawingBufferSize(new THREE.Vector2());
+const _ct = new THREE.WebGLRenderTarget(_sz.x, _sz.y, {type:THREE.HalfFloatType, samples: G.isTouch?2:4});
+const composer = new EffectComposer(renderer, _ct);
 const renderPass = new RenderPass(new THREE.Scene(), camera);
-const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth,innerHeight), 0.42, 0.55, 0.82);
+const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth,innerHeight), 0.5, 0.5, 0.82);
 composer.addPass(renderPass);
 composer.addPass(bloom);
 composer.addPass(new OutputPass());
+// image-based lighting: subtle studio environment gives PBR materials real reflections
+const _pmrem = new THREE.PMREMGenerator(renderer);
+const ENV = _pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
 
 function applyQuality(){
   const hi = G.quality==='high', min = G.perfMin;
@@ -345,7 +352,7 @@ function rbox(w,h,d,r,mat,seg=3){ return shadows(new THREE.Mesh(new RoundedBoxGe
 function cyl(rt,rb,h,mat,seg=20,open=false){ return shadows(new THREE.Mesh(new THREE.CylinderGeometry(rt,rb,h,seg,1,open), mat)); }
 function sph(r,mat,ws=18,hs=13){ return shadows(new THREE.Mesh(new THREE.SphereGeometry(r,ws,hs), mat)); }
 function hemi(r,mat,ws=20){ return shadows(new THREE.Mesh(new THREE.SphereGeometry(r,ws,12,0,TAU,0,PI/2), mat)); }
-function cap(r,len,mat){ return shadows(new THREE.Mesh(new THREE.CapsuleGeometry(r,len,5,12), mat)); }
+function cap(r,len,mat){ return shadows(new THREE.Mesh(new THREE.CapsuleGeometry(r,len,7,20), mat)); }
 function cone(r,h,mat,seg=16){ return shadows(new THREE.Mesh(new THREE.ConeGeometry(r,h,seg), mat)); }
 function tor(r,t,mat,s1=12,s2=24){ return shadows(new THREE.Mesh(new THREE.TorusGeometry(r,t,s1,s2), mat)); }
 function pl(w,h,mat){ const m=new THREE.Mesh(new THREE.PlaneGeometry(w,h), mat); m.receiveShadow=true; return m; }
@@ -695,6 +702,11 @@ function mkPerson(o={}){
       const tb=box(0.042,0.20,0.014,M(o.tie,0.7,0)); tb.position.set(0,0.35,0.121); torso.add(tb); }
   }
   for(const s of [-1,1]){ const col = box(0.075,0.045,0.05, o.jacket?M(o.jacket,0.8,0.02):topM); col.position.set(s*0.055,0.505,0.02); col.rotation.z=s*0.35; torso.add(col); }
+  // trapezius / upper-back mass — kills the "flat box" torso read
+  const bodyM = o.jacket?M(o.jacket,0.85,0.02):topM;
+  const trap = rbox(0.185*b,0.085,0.15,0.05, bodyM); trap.position.set(0,0.48,-0.012); torso.add(trap);
+  const upperBack = sph(0.155*b, bodyM, 16,12); upperBack.scale.set(1.02,0.82,0.72); upperBack.position.set(0,0.365,-0.026); torso.add(upperBack);
+  if(!o.jacket && !o.skirt){ for(const s of [-1,1]){ const pec=sph(0.10*b, topM, 14,10); pec.scale.set(1,0.72,0.6); pec.position.set(s*0.082*b,0.40,0.10); torso.add(pec); } }
 
   /* coat tails / skirt */
   let coatF=null, coatB=null;
@@ -708,27 +720,37 @@ function mkPerson(o={}){
   if(o.skirt){ const sk = cyl(0.165*b,0.27*b,0.42,M(o.skirt,0.9,0),18); sk.position.y=-0.12; hips.add(sk); }
 
   /* ---- arms ---- */
+  const sleeveM = o.jacket?M(o.jacket,0.85,0.02):topM;
   const mkArm = s=>{
     const sh = new THREE.Group(); sh.position.set(s*(0.185*b+0.035),0.455,0); torso.add(sh);
-    const ua = cap(0.049,0.19, o.jacket?M(o.jacket,0.85,0.02):topM); ua.position.y=-0.145; sh.add(ua);
+    const delt = sph(0.06, sleeveM, 16,12); delt.scale.set(1,0.95,1); delt.position.set(s*-0.01,-0.01,0); sh.add(delt); // rounded shoulder
+    const ua = cap(0.047,0.185, sleeveM); ua.position.y=-0.15; sh.add(ua);
     const el = new THREE.Group(); el.position.y=-0.29; sh.add(el);
+    const elbow = sph(0.045, sleeveM, 12,10); el.add(elbow);
     const sleeveDown = o.jacket||o.sleeves!=='short';
-    const fa = cap(0.041,0.17, sleeveDown?(o.jacket?M(o.jacket,0.85,0.02):topM):skin); fa.position.y=-0.125; el.add(fa);
+    const fa = cap(0.04,0.17, sleeveDown?sleeveM:skin); fa.position.y=-0.125; el.add(fa);
+    if(sleeveDown){ const cuff=cap(0.043,0.02,skin); cuff.position.y=-0.235; el.add(cuff); } // wrist skin
     const hand = new THREE.Group(); hand.position.y=-0.265; el.add(hand);
-    const palm = rbox(0.07,0.095,0.038,0.016, skin); palm.position.y=-0.045; hand.add(palm);
-    const th = rbox(0.024,0.052,0.024,0.01, skin); th.position.set(s*0.043,-0.03,0.012); th.rotation.z=s*0.5; hand.add(th);
+    const palm = rbox(0.068,0.08,0.04,0.018, skin); palm.position.y=-0.035; hand.add(palm);
+    for(let i=0;i<4;i++){ const fg=rbox(0.0155,0.062,0.03,0.007, skin); fg.position.set((i-1.5)*0.0175,-0.10,0.002); hand.add(fg); }
+    const th = rbox(0.021,0.05,0.026,0.01, skin); th.position.set(s*0.038,-0.035,0.012); th.rotation.z=s*0.6; hand.add(th);
     return {sh,el,hand};
   };
   const armL = mkArm(1), armR = mkArm(-1);
 
   /* ---- legs ---- */
+  const legM = o.skirt?skin:trouserM;
   const mkLeg = s=>{
     const hip = new THREE.Group(); hip.position.set(s*0.095*b,-0.03,0); hips.add(hip);
-    const th = cap(0.068,0.30, o.skirt?skin:trouserM); th.position.y=-0.215; hip.add(th);
+    const th = cap(0.07,0.30, legM); th.position.y=-0.215; hip.add(th);
     const kn = new THREE.Group(); kn.position.y=-0.43; hip.add(kn);
-    const sh2 = cap(0.052,0.32, o.skirt?skin:trouserM); sh2.position.y=-0.21; kn.add(sh2);
+    const knee = sph(0.058, legM, 12,10); knee.scale.set(1,0.9,1); kn.add(knee);
+    const sh2 = cap(0.05,0.32, legM); sh2.position.y=-0.21; kn.add(sh2);
+    const calf = sph(0.062, legM, 12,10); calf.scale.set(0.9,1.3,0.85); calf.position.set(0,-0.16,-0.02); kn.add(calf);
     const foot = new THREE.Group(); foot.position.y=-0.45; kn.add(foot);
-    const f = rbox(0.095,0.065,0.25,0.02, shoeM); f.position.set(0,-0.055,0.055); foot.add(f);
+    const ankle = sph(0.045, o.skirt?skin:M(o.shoes,0.5,0.1), 10,8); foot.add(ankle);
+    const f = rbox(0.092,0.062,0.20,0.025, shoeM); f.position.set(0,-0.06,0.05); foot.add(f);
+    const toe = rbox(0.088,0.05,0.09,0.03, shoeM); toe.position.set(0,-0.062,0.155); foot.add(toe);
     return {hip,kn,foot};
   };
   const legL = mkLeg(1), legR = mkLeg(-1);
@@ -742,16 +764,21 @@ function mkPerson(o={}){
     const jaw = rbox(0.115,0.085,0.10,0.035, skin); jaw.position.set(0,0.005,0.012); head.add(jaw);
     for(const s of [-1,1]){ const ear=sph(0.017,skin,8,6); ear.scale.set(0.5,1,0.7); ear.position.set(s*0.100,0.055,0.002); head.add(ear); }
     if(!o.blankFace){
+      const eyeW=M(0xf6f4ec,0.28,0,{emissive:0xe6e4dc, ei:0.15});   // faint self-read so eyes never go pure-black
+      const browC=new THREE.Color(o.hair).lerp(new THREE.Color(o.skin),0.32).getHex();
+      const browM=M(browC,0.9,0);
       for(const s of [-1,1]){
-        const eg = new THREE.Group(); eg.position.set(s*0.038,0.072,0.084); head.add(eg);
-        const w = sph(0.0205, M(0xf4f2ee,0.35,0), 10,8); w.scale.set(1,0.82,0.55); eg.add(w);
-        const ir = sph(0.0105, M(o.eye,0.3,0), 8,6); ir.scale.set(1,1,0.5); ir.position.z=0.0125; eg.add(ir);
-        const pu = sph(0.0052, M(0x0a0a0a,0.3,0), 6,5); pu.scale.set(1,1,0.5); pu.position.z=0.0165; eg.add(pu);
-        const br = box(0.036,0.007,0.012, hairM); br.position.set(s*0.038,0.107,0.092); br.rotation.z=-s*0.10; head.add(br);
+        const eg = new THREE.Group(); eg.position.set(s*0.037,0.073,0.088); head.add(eg);
+        const w = sph(0.023, eyeW, 12,9); w.scale.set(1,0.86,0.62); eg.add(w);
+        const ir = sph(0.0115, M(o.eye,0.28,0), 10,8); ir.scale.set(1,1,0.6); ir.position.z=0.014; eg.add(ir);
+        const pu = sph(0.0055, M(0x0a0a0a,0.3,0), 8,6); pu.scale.set(1,1,0.6); pu.position.z=0.0185; eg.add(pu);
+        const lid = rbox(0.052,0.014,0.032,0.006, skin); lid.position.set(s*0.037,0.089,0.086); lid.rotation.z=-s*0.07; head.add(lid); // lit eyelid softens the socket
+        const cheek = rbox(0.05,0.03,0.03,0.01, skin); cheek.position.set(s*0.04,0.05,0.084); head.add(cheek);
+        const br = box(0.034,0.0065,0.013, browM); br.position.set(s*0.037,0.101,0.094); br.rotation.z=-s*0.10; head.add(br);
       }
-      const nb = cap(0.011,0.014, skin); nb.rotation.x=-0.45; nb.position.set(0,0.052,0.100); head.add(nb);
-      const nt = sph(0.0125, skin, 8,6); nt.position.set(0,0.038,0.106); head.add(nt);
-      const lip = rbox(0.042,0.011,0.013,0.005, M(lipC,0.6,0)); lip.position.set(0,0.012,0.094); head.add(lip);
+      const nb = cap(0.012,0.018, skin); nb.rotation.x=-0.4; nb.position.set(0,0.05,0.101); head.add(nb);
+      const nt = sph(0.0135, skin, 8,6); nt.position.set(0,0.036,0.107); head.add(nt);
+      const lip = rbox(0.044,0.012,0.014,0.005, M(lipC,0.55,0)); lip.position.set(0,0.011,0.095); head.add(lip);
     }
     /* hair */
     const hs=o.hairStyle;
@@ -3329,6 +3356,9 @@ function buildWorld(){
   G.player=mkDoctor();
   G.companion=mkRiley();
   buildLondon(); buildTardisInterior(); buildSkaro(); buildMoonbase(); buildGraveyard();
+  // image-based lighting per zone (reflections + material depth); brighter zones get more
+  const envInt={london:0.30, tardis:0.45, skaro:0.55, moon:0.55, grave:0.28};
+  for(const id in G.zones){ const s=G.zones[id].scene; s.environment=ENV; s.environmentIntensity=envInt[id]??0.35; }
   recountFragments();
 }
 function startGame(fromSave){
