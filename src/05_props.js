@@ -148,7 +148,7 @@ function mkBuilding(cfg){
   const w=cfg.w??10, floors=cfg.floors??3, d=8;
   const h=floors*3.0+0.8;
   const root=new THREE.Group();
-  const brick=M(cfg.brick??pick(BRICKS),0.92,0);
+  const brick=TM(cfg.brick??pick(BRICKS),0.9,0,'brick',4.5,3.6,1.0);
   root.add(at(box(w,h,d,brick),0,h/2,0));
   root.add(at(box(w+0.3,0.5,d+0.3,M(0x4a4640,0.9,0)),0,h+0.22,0));
   for(let i=0;i<Math.max(1,Math.floor(w/7));i++){
@@ -209,6 +209,16 @@ function placeBuilding(Z, b, x, z, rotY=0){
     return {x:x+v.x, z:z+v.z, yaw:rotY};
   });
 }
+/* soft volumetric-style light cone (additive, fades to ground) */
+function mkLightCone(color=0xffc46a, topR=0.16, botR=1.7, h=4.6, opacity=0.07){
+  if(!TEX.coneGrad){ TEX.coneGrad=ctex(16,128,(x,w,hh)=>{ const g=x.createLinearGradient(0,0,0,hh);
+    g.addColorStop(0,'rgba(255,255,255,0.9)'); g.addColorStop(1,'rgba(255,255,255,0)');
+    x.fillStyle=g; x.fillRect(0,0,w,hh); }); }
+  const m=new THREE.MeshBasicMaterial({color, map:TEX.coneGrad, transparent:true, opacity,
+    blending:THREE.AdditiveBlending, depthWrite:false, side:THREE.DoubleSide, fog:false});
+  return new THREE.Mesh(new THREE.CylinderGeometry(topR,botR,h,20,1,true), m);
+}
+
 function mkLampPost(){
   const g=new THREE.Group();
   const dk=M(0x1e2226,0.6,0.5);

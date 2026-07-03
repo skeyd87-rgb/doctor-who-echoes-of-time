@@ -28,6 +28,7 @@ function switchZone(id, spawnOverride){
   const Z=G.zones[id]; if(!Z) return;
   G.zone=Z;
   renderPass.scene=Z.scene;
+  gtao.scene=Z.scene;
   const s=spawnOverride||Z.spawn;
   G.player.root.position.set(s.x, Z.groundHeight(s.x,s.z), s.z);
   G.yaw=s.yaw??0; G.pitch=-0.1; PL.vel.set(0,0,0);
@@ -254,6 +255,7 @@ function loop(now){
       updateBanter(dt); updateToast(dt); updateObjective(); updateFrags();
       drawGauge(t); drawMinimap();
     }
+    film.uniforms.uTime.value=t%97;
     composer.render();
   }
   G.pressed={};

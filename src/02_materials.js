@@ -49,6 +49,110 @@ TEX.moonNoise = ctex(256,256,(x,w,h)=>{
 });
 TEX.moonNoise.wrapS=TEX.moonNoise.wrapT=THREE.RepeatWrapping; TEX.moonNoise.repeat.set(18,18);
 
+/* ---------- procedural PBR textures: height canvas -> albedo + normal map ---------- */
+function _heightCanvas(w,h,draw){ const c=document.createElement('canvas'); c.width=w; c.height=h; draw(c.getContext('2d'),w,h); return c; }
+function _normalFromHeight(hc, strength=2.0){
+  const w=hc.width, h=hc.height, src=hc.getContext('2d').getImageData(0,0,w,h).data;
+  const out=document.createElement('canvas'); out.width=w; out.height=h;
+  const octx=out.getContext('2d'), img=octx.createImageData(w,h), d=img.data;
+  const H=(x,y)=>src[(((y+h)%h)*w+((x+w)%w))*4]/255;
+  for(let y=0;y<h;y++)for(let x=0;x<w;x++){
+    const dx=(H(x+1,y)-H(x-1,y))*strength, dy=(H(x,y+1)-H(x,y-1))*strength;
+    const inv=1/Math.sqrt(dx*dx+dy*dy+1), i=(y*w+x)*4;
+    d[i]=(-dx*inv*0.5+0.5)*255; d[i+1]=(dy*inv*0.5+0.5)*255; d[i+2]=inv*255; d[i+3]=255;
+  }
+  octx.putImageData(img,0,0);
+  const t=new THREE.CanvasTexture(out); t.wrapS=t.wrapT=THREE.RepeatWrapping; t.anisotropy=4; return t;
+}
+function texSet(name, w, h, drawHeight, drawAlbedo, nStrength=2.0){
+  const hc=_heightCanvas(w,h,drawHeight);
+  const ac=document.createElement('canvas'); ac.width=w; ac.height=h;
+  drawAlbedo(ac.getContext('2d'),w,h,hc);
+  const map=new THREE.CanvasTexture(ac); map.colorSpace=THREE.SRGBColorSpace; map.wrapS=map.wrapT=THREE.RepeatWrapping; map.anisotropy=8;
+  const nrm=_normalFromHeight(hc,nStrength);
+  TEX[name]={map,nrm}; return TEX[name];
+}
+// brick: drawn light so material.color tints it per building
+texSet('brick', 256,256, (x,w,h)=>{
+  x.fillStyle='#666'; x.fillRect(0,0,w,h);
+  const bw=64,bh=32;
+  for(let ry=0;ry<h/bh;ry++)for(let cx=-1;cx<w/bw;cx++){
+    const ox=(ry%2)*bw/2;
+    x.fillStyle=`rgb(${randi(180,225)},${randi(180,225)},${randi(180,225)})`;
+    x.fillRect(cx*bw+ox+3, ry*bh+3, bw-6, bh-6);
+  }
+},(x,w,h,hc)=>{
+  x.drawImage(hc,0,0);
+  const id=x.getImageData(0,0,w,h), d=id.data;
+  for(let i=0;i<d.length;i+=4){ const v=d[i];
+    if(v<120){ d[i]=205;d[i+1]=200;d[i+2]=192; }                     // mortar
+    else { const j=randi(-14,14); d[i]=225+j; d[i+1]=215+j; d[i+2]=208+j; } }
+  x.putImageData(id,0,0);
+}, 2.6);
+// asphalt: fine noise + patches
+texSet('asphalt', 256,256, (x,w,h)=>{
+  x.fillStyle='#808080'; x.fillRect(0,0,w,h);
+  for(let i=0;i<5200;i++){ const v=randi(90,170); x.fillStyle=`rgb(${v},${v},${v})`; x.fillRect(rand(w),rand(h),randi(1,3),randi(1,3)); }
+  for(let i=0;i<14;i++){ x.strokeStyle='rgba(60,60,60,.5)'; x.lineWidth=1.2; x.beginPath();
+    let px=rand(w),py=rand(h); x.moveTo(px,py); for(let k=0;k<5;k++){ px+=rand(-24,24); py+=rand(-24,24); x.lineTo(px,py);} x.stroke(); }
+},(x,w,h,hc)=>{
+  x.fillStyle='#b9bcc2'; x.fillRect(0,0,w,h);
+  x.globalAlpha=0.5; x.drawImage(hc,0,0); x.globalAlpha=1;
+}, 1.6);
+// paving slabs
+texSet('paving', 256,256, (x,w,h)=>{
+  x.fillStyle='#9a9a9a'; x.fillRect(0,0,w,h);
+  for(let ry=0;ry<4;ry++)for(let cx=0;cx<4;cx++){
+    x.fillStyle=`rgb(${randi(150,200)},${randi(150,200)},${randi(150,200)})`;
+    x.fillRect(cx*64+2, ry*64+2, 60, 60);
+  }
+  for(let i=0;i<1500;i++){ const v=randi(120,190); x.fillStyle=`rgb(${v},${v},${v})`; x.fillRect(rand(w),rand(h),2,2); }
+},(x,w,h,hc)=>{ x.drawImage(hc,0,0);
+  const id=x.getImageData(0,0,w,h), d=id.data;
+  for(let i=0;i<d.length;i+=4){ const v=d[i]; const j=randi(-8,8);
+    d[i]=clamp(v+40+j,0,255); d[i+1]=clamp(v+40+j,0,255); d[i+2]=clamp(v+42+j,0,255); }
+  x.putImageData(id,0,0);
+}, 2.2);
+// wind-rippled sand
+texSet('sand', 256,256, (x,w,h)=>{
+  x.fillStyle='#808080'; x.fillRect(0,0,w,h);
+  for(let y=0;y<h;y++){ const v=128+70*Math.sin(y*0.22+Math.sin(y*0.045)*4);
+    x.fillStyle=`rgb(${v|0},${v|0},${v|0})`; x.fillRect(0,y,w,1); }
+  for(let i=0;i<2400;i++){ const v=randi(100,170); x.fillStyle=`rgb(${v},${v},${v})`; x.fillRect(rand(w),rand(h),randi(1,3),1); }
+},(x,w,h,hc)=>{
+  x.fillStyle='#cfae86'; x.fillRect(0,0,w,h);
+  x.globalAlpha=0.35; x.drawImage(hc,0,0); x.globalAlpha=1;
+}, 1.5);
+// mossy grass
+texSet('grass', 256,256, (x,w,h)=>{
+  x.fillStyle='#777'; x.fillRect(0,0,w,h);
+  for(let i=0;i<4200;i++){ const v=randi(70,190); x.fillStyle=`rgb(${v},${v},${v})`;
+    x.fillRect(rand(w),rand(h),randi(1,2),randi(2,5)); }
+},(x,w,h,hc)=>{
+  x.fillStyle='#8fa06a'; x.fillRect(0,0,w,h);
+  for(let i=0;i<3600;i++){ x.fillStyle=`rgba(${randi(90,150)},${randi(120,175)},${randi(70,110)},0.8)`;
+    x.fillRect(rand(w),rand(h),randi(1,3),randi(2,6)); }
+}, 1.4);
+// fabric weave (normal only, subtle) — for clothing
+texSet('fabric', 128,128, (x,w,h)=>{
+  x.fillStyle='#808080'; x.fillRect(0,0,w,h);
+  for(let y=0;y<h;y+=3){ x.fillStyle=y%6?'#8c8c8c':'#747474'; x.fillRect(0,y,w,1); }
+  for(let X=0;X<w;X+=3){ x.fillStyle=X%6?'#888':'#787878'; x.fillRect(X,0,1,h); }
+  for(let i=0;i<600;i++){ const v=randi(110,150); x.fillStyle=`rgb(${v},${v},${v})`; x.fillRect(rand(w),rand(h),1,1); }
+},(x,w,h)=>{ x.fillStyle='#fff'; x.fillRect(0,0,w,h); }, 1.1);
+
+/* textured-material cache */
+const _tmats=new Map();
+function TM(color, rough, metal, texName, repX=1, repY=1, nscale=1){
+  const key=color+'|'+rough+'|'+metal+'|'+texName+'|'+repX+'|'+repY+'|'+nscale;
+  if(_tmats.has(key)) return _tmats.get(key);
+  const t=TEX[texName];
+  const map=t.map.clone(); map.repeat.set(repX,repY); map.needsUpdate=true;
+  const nrm=t.nrm.clone(); nrm.repeat.set(repX,repY); nrm.needsUpdate=true;
+  const m=new THREE.MeshStandardMaterial({color, roughness:rough, metalness:metal, map, normalMap:nrm, normalScale:new THREE.Vector2(nscale,nscale)});
+  _tmats.set(key,m); return m;
+}
+
 TEX.puff = ctex(64,64,(x,w,h)=>{
   const g=x.createRadialGradient(32,32,2,32,32,30);
   g.addColorStop(0,'rgba(255,255,255,0.85)'); g.addColorStop(0.5,'rgba(255,255,255,0.28)'); g.addColorStop(1,'rgba(255,255,255,0)');

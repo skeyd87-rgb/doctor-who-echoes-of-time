@@ -4,6 +4,8 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { MarchingCubes } from 'three/addons/objects/MarchingCubes.js';
@@ -61,10 +63,31 @@ const _sz = renderer.getDrawingBufferSize(new THREE.Vector2());
 const _ct = new THREE.WebGLRenderTarget(_sz.x, _sz.y, {type:THREE.HalfFloatType, samples: G.isTouch?2:4});
 const composer = new EffectComposer(renderer, _ct);
 const renderPass = new RenderPass(new THREE.Scene(), camera);
+const gtao = new GTAOPass(renderPass.scene, camera, innerWidth, innerHeight);
+gtao.enabled = false;
 const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth,innerHeight), 0.5, 0.5, 0.82);
 composer.addPass(renderPass);
+composer.addPass(gtao);
 composer.addPass(bloom);
 composer.addPass(new OutputPass());
+// cinematic finish: vignette + film grain + gentle saturation (runs in display space, after OutputPass)
+const film = new ShaderPass({
+  uniforms:{ tDiffuse:{value:null}, uTime:{value:0} },
+  vertexShader:`varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+  fragmentShader:`
+    uniform sampler2D tDiffuse; uniform float uTime; varying vec2 vUv;
+    void main(){
+      vec4 c = texture2D(tDiffuse, vUv);
+      float l = dot(c.rgb, vec3(0.299,0.587,0.114));
+      c.rgb = mix(vec3(l), c.rgb, 1.10);                            // saturation lift
+      float d = distance(vUv, vec2(0.5));
+      c.rgb *= 1.0 - 0.34*smoothstep(0.42, 0.86, d);                // vignette
+      float n = fract(sin(dot(vUv*vec2(1420.9,1130.3), vec2(12.9898,78.233)) + uTime*61.7)*43758.5453);
+      c.rgb += (n-0.5)*0.028;                                       // grain
+      gl_FragColor = c;
+    }`,
+});
+composer.addPass(film);
 // image-based lighting: subtle studio environment gives PBR materials real reflections
 const _pmrem = new THREE.PMREMGenerator(renderer);
 const ENV = _pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
@@ -75,6 +98,8 @@ function applyQuality(){
   renderer.setPixelRatio(min ? 1 : hi ? Math.min(devicePixelRatio,2) : Math.min(devicePixelRatio,1.5));
   bloom.enabled = !min;
   bloom.strength = hi ? 0.6 : 0.5;
+  gtao.enabled = hi && !G.isTouch && !min;      // ambient occlusion: desktop-high only
+  film.enabled = !min;
   for(const id in G.zones){const s=G.zones[id].sun; if(s&&s.shadow){s.shadow.mapSize.setScalar(hi&&!min?2048:1024); if(s.shadow.map){s.shadow.map.dispose();s.shadow.map=null;}}}
   renderer.shadowMap.enabled = true;
   resize();

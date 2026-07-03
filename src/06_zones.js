@@ -40,16 +40,17 @@ function buildLondon(){
   md.position.set(-140,190,120); md.lookAt(0,0,0); S.add(md);
   mkStars(S, 400, 500, 1.3, 0.15);
   // road & sidewalks
-  const road=pl(140,9.4, M(0x14161c,0.28,0.05)); road.rotation.x=-PI/2; road.position.y=0.001; S.add(road);
+  const road=pl(140,9.4, TM(0x3a424e,0.24,0.08,'asphalt',22,2,0.55)); road.rotation.x=-PI/2; road.position.y=0.001; S.add(road);
   for(const s of [-1,1]){
-    const sw=pl(140,3.4, M(0x2a2c30,0.55,0)); sw.rotation.x=-PI/2; sw.position.set(0,0.012,s*6.4); S.add(sw);
+    const sw=pl(140,3.4, TM(0x6a7078,0.6,0,'paving',30,1.5,0.9)); sw.rotation.x=-PI/2; sw.position.set(0,0.012,s*6.4); S.add(sw);
     const curb=box(140,0.09,0.22, M(0x3a3c40,0.6,0)); curb.position.set(0,0.045,s*4.75); S.add(curb);
   }
   const dashG=[]; for(let i=0;i<16;i++) dashG.push(new THREE.PlaneGeometry(2.2,0.16).rotateX(-PI/2).translate(-64+i*8.6,0.015,0));
   S.add(new THREE.Mesh(mergeGeos(dashG), M(0xb8b09a,0.6,0)));
-  // puddles
+  // puddles — near-mirrors that catch lamp glow and the environment
+  const puddleM=new THREE.MeshStandardMaterial({color:0x39404e, roughness:0.02, metalness:1.0, envMapIntensity:2.2});
   for(let i=0;i<14;i++){
-    const p=new THREE.Mesh(new THREE.CircleGeometry(rand(0.5,1.6),18), M(0x11161f,0.04,0.85));
+    const p=new THREE.Mesh(new THREE.CircleGeometry(rand(0.5,1.6),18), puddleM);
     p.rotation.x=-PI/2; p.position.set(rand(-52,52), 0.02, rand(-6.5,6.5)); p.scale.x=rand(1,2.2); S.add(p);
   }
   // buildings
@@ -74,7 +75,9 @@ function buildLondon(){
       const L=mkLampPost(); L.root.position.set(x,0,s*6.1); L.root.rotation.y=s>0?PI:0;
       S.add(L.root); markStatic(L.root); circ(Z,x,s*6.1,0.25);
       if([-28,0,28].includes(x)&&s>0 || [-14,14].includes(x)&&s<0){
-        const pt=new THREE.PointLight(0xffc46a, 60, 24, 1.75); pt.position.set(x, 4.6, s*6.1 + (s>0?-0.55:0.55)); S.add(pt);
+        const lz=s*6.1 + (s>0?-0.55:0.55);
+        const pt=new THREE.PointLight(0xffc46a, 60, 24, 1.75); pt.position.set(x, 4.6, lz); S.add(pt);
+        const cone=mkLightCone(0xffc46a, 0.16, 1.8, 4.5, 0.075); cone.position.set(x, 2.45, lz); S.add(cone);
       }
     }
   });
@@ -208,7 +211,7 @@ function buildSkaro(){
     const glow=new THREE.Sprite(new THREE.SpriteMaterial({map:TEX.puff, color:c,transparent:true,opacity:0.35,blending:THREE.AdditiveBlending,depthWrite:false,fog:false}));
     glow.position.set(x,y,z); glow.scale.setScalar(r*7); S.add(glow);
   }
-  terrainMesh(Z, 200, 100, M(0xb0793f,1,0));
+  terrainMesh(Z, 200, 100, TM(0xd89a5e,1,0,'sand',30,30,0.9));
   // petrified forest + rocks
   const white=M(0xd9d2c7,0.9,0,{flat:true});
   for(let i=0;i<24;i++){
@@ -375,7 +378,7 @@ function buildGraveyard(){
   md.position.set(120,150,-170); md.lookAt(0,0,0); S.add(md);
   const mGlow=new THREE.Sprite(new THREE.SpriteMaterial({map:TEX.puff, color:0xbfd0f8,transparent:true,opacity:0.22,blending:THREE.AdditiveBlending,depthWrite:false,fog:false}));
   mGlow.position.copy(md.position); mGlow.scale.setScalar(70); S.add(mGlow);
-  terrainMesh(Z, 130, 80, M(0x39482f,0.95,0));
+  terrainMesh(Z, 130, 80, TM(0x3e4c36,1,0,'grass',32,32,0.9));
   // gravel path from gate to mausoleum
   const path=pl(3.2,80, M(0x4a4640,0.85,0)); path.rotation.x=-PI/2; path.position.set(0,0.05,4); S.add(path);
   // fences + gate
@@ -431,6 +434,7 @@ function buildGraveyard(){
     const flame=new THREE.Mesh(new THREE.SphereGeometry(0.07,8,6), flameM); flame.position.y=2.35; post.add(flame);
     post.position.set(x,gh(x,z),z); S.add(post); circ(Z,x,z,0.2);
     const pt=new THREE.PointLight(0xffB868, 11, 12, 1.9); pt.position.set(x,2.4,z); S.add(pt);
+    const cone=mkLightCone(0xffB868, 0.1, 1.15, 2.3, 0.06); cone.position.set(x, gh(x,z)+1.2, z); S.add(cone);
     Z.updaters.push((dt,t)=>{ pt.intensity=11+Math.sin(t*9+x)*1.6+Math.sin(t*23+z)*0.9; flameM.emissiveIntensity=2.0+Math.sin(t*11+x)*0.5; });
   }
   // ground mist

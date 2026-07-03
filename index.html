@@ -236,6 +236,8 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { MarchingCubes } from 'three/addons/objects/MarchingCubes.js';
@@ -293,10 +295,31 @@ const _sz = renderer.getDrawingBufferSize(new THREE.Vector2());
 const _ct = new THREE.WebGLRenderTarget(_sz.x, _sz.y, {type:THREE.HalfFloatType, samples: G.isTouch?2:4});
 const composer = new EffectComposer(renderer, _ct);
 const renderPass = new RenderPass(new THREE.Scene(), camera);
+const gtao = new GTAOPass(renderPass.scene, camera, innerWidth, innerHeight);
+gtao.enabled = false;
 const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth,innerHeight), 0.5, 0.5, 0.82);
 composer.addPass(renderPass);
+composer.addPass(gtao);
 composer.addPass(bloom);
 composer.addPass(new OutputPass());
+// cinematic finish: vignette + film grain + gentle saturation (runs in display space, after OutputPass)
+const film = new ShaderPass({
+  uniforms:{ tDiffuse:{value:null}, uTime:{value:0} },
+  vertexShader:`varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+  fragmentShader:`
+    uniform sampler2D tDiffuse; uniform float uTime; varying vec2 vUv;
+    void main(){
+      vec4 c = texture2D(tDiffuse, vUv);
+      float l = dot(c.rgb, vec3(0.299,0.587,0.114));
+      c.rgb = mix(vec3(l), c.rgb, 1.10);                            // saturation lift
+      float d = distance(vUv, vec2(0.5));
+      c.rgb *= 1.0 - 0.34*smoothstep(0.42, 0.86, d);                // vignette
+      float n = fract(sin(dot(vUv*vec2(1420.9,1130.3), vec2(12.9898,78.233)) + uTime*61.7)*43758.5453);
+      c.rgb += (n-0.5)*0.028;                                       // grain
+      gl_FragColor = c;
+    }`,
+});
+composer.addPass(film);
 // image-based lighting: subtle studio environment gives PBR materials real reflections
 const _pmrem = new THREE.PMREMGenerator(renderer);
 const ENV = _pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
@@ -307,6 +330,8 @@ function applyQuality(){
   renderer.setPixelRatio(min ? 1 : hi ? Math.min(devicePixelRatio,2) : Math.min(devicePixelRatio,1.5));
   bloom.enabled = !min;
   bloom.strength = hi ? 0.6 : 0.5;
+  gtao.enabled = hi && !G.isTouch && !min;      // ambient occlusion: desktop-high only
+  film.enabled = !min;
   for(const id in G.zones){const s=G.zones[id].sun; if(s&&s.shadow){s.shadow.mapSize.setScalar(hi&&!min?2048:1024); if(s.shadow.map){s.shadow.map.dispose();s.shadow.map=null;}}}
   renderer.shadowMap.enabled = true;
   resize();
@@ -636,6 +661,110 @@ TEX.moonNoise = ctex(256,256,(x,w,h)=>{
     x.fillStyle='rgba(170,170,175,.3)'; x.beginPath(); x.arc(rand(w),rand(h),r*0.5,0,7); x.fill(); }
 });
 TEX.moonNoise.wrapS=TEX.moonNoise.wrapT=THREE.RepeatWrapping; TEX.moonNoise.repeat.set(18,18);
+
+/* ---------- procedural PBR textures: height canvas -> albedo + normal map ---------- */
+function _heightCanvas(w,h,draw){ const c=document.createElement('canvas'); c.width=w; c.height=h; draw(c.getContext('2d'),w,h); return c; }
+function _normalFromHeight(hc, strength=2.0){
+  const w=hc.width, h=hc.height, src=hc.getContext('2d').getImageData(0,0,w,h).data;
+  const out=document.createElement('canvas'); out.width=w; out.height=h;
+  const octx=out.getContext('2d'), img=octx.createImageData(w,h), d=img.data;
+  const H=(x,y)=>src[(((y+h)%h)*w+((x+w)%w))*4]/255;
+  for(let y=0;y<h;y++)for(let x=0;x<w;x++){
+    const dx=(H(x+1,y)-H(x-1,y))*strength, dy=(H(x,y+1)-H(x,y-1))*strength;
+    const inv=1/Math.sqrt(dx*dx+dy*dy+1), i=(y*w+x)*4;
+    d[i]=(-dx*inv*0.5+0.5)*255; d[i+1]=(dy*inv*0.5+0.5)*255; d[i+2]=inv*255; d[i+3]=255;
+  }
+  octx.putImageData(img,0,0);
+  const t=new THREE.CanvasTexture(out); t.wrapS=t.wrapT=THREE.RepeatWrapping; t.anisotropy=4; return t;
+}
+function texSet(name, w, h, drawHeight, drawAlbedo, nStrength=2.0){
+  const hc=_heightCanvas(w,h,drawHeight);
+  const ac=document.createElement('canvas'); ac.width=w; ac.height=h;
+  drawAlbedo(ac.getContext('2d'),w,h,hc);
+  const map=new THREE.CanvasTexture(ac); map.colorSpace=THREE.SRGBColorSpace; map.wrapS=map.wrapT=THREE.RepeatWrapping; map.anisotropy=8;
+  const nrm=_normalFromHeight(hc,nStrength);
+  TEX[name]={map,nrm}; return TEX[name];
+}
+// brick: drawn light so material.color tints it per building
+texSet('brick', 256,256, (x,w,h)=>{
+  x.fillStyle='#666'; x.fillRect(0,0,w,h);
+  const bw=64,bh=32;
+  for(let ry=0;ry<h/bh;ry++)for(let cx=-1;cx<w/bw;cx++){
+    const ox=(ry%2)*bw/2;
+    x.fillStyle=`rgb(${randi(180,225)},${randi(180,225)},${randi(180,225)})`;
+    x.fillRect(cx*bw+ox+3, ry*bh+3, bw-6, bh-6);
+  }
+},(x,w,h,hc)=>{
+  x.drawImage(hc,0,0);
+  const id=x.getImageData(0,0,w,h), d=id.data;
+  for(let i=0;i<d.length;i+=4){ const v=d[i];
+    if(v<120){ d[i]=205;d[i+1]=200;d[i+2]=192; }                     // mortar
+    else { const j=randi(-14,14); d[i]=225+j; d[i+1]=215+j; d[i+2]=208+j; } }
+  x.putImageData(id,0,0);
+}, 2.6);
+// asphalt: fine noise + patches
+texSet('asphalt', 256,256, (x,w,h)=>{
+  x.fillStyle='#808080'; x.fillRect(0,0,w,h);
+  for(let i=0;i<5200;i++){ const v=randi(90,170); x.fillStyle=`rgb(${v},${v},${v})`; x.fillRect(rand(w),rand(h),randi(1,3),randi(1,3)); }
+  for(let i=0;i<14;i++){ x.strokeStyle='rgba(60,60,60,.5)'; x.lineWidth=1.2; x.beginPath();
+    let px=rand(w),py=rand(h); x.moveTo(px,py); for(let k=0;k<5;k++){ px+=rand(-24,24); py+=rand(-24,24); x.lineTo(px,py);} x.stroke(); }
+},(x,w,h,hc)=>{
+  x.fillStyle='#b9bcc2'; x.fillRect(0,0,w,h);
+  x.globalAlpha=0.5; x.drawImage(hc,0,0); x.globalAlpha=1;
+}, 1.6);
+// paving slabs
+texSet('paving', 256,256, (x,w,h)=>{
+  x.fillStyle='#9a9a9a'; x.fillRect(0,0,w,h);
+  for(let ry=0;ry<4;ry++)for(let cx=0;cx<4;cx++){
+    x.fillStyle=`rgb(${randi(150,200)},${randi(150,200)},${randi(150,200)})`;
+    x.fillRect(cx*64+2, ry*64+2, 60, 60);
+  }
+  for(let i=0;i<1500;i++){ const v=randi(120,190); x.fillStyle=`rgb(${v},${v},${v})`; x.fillRect(rand(w),rand(h),2,2); }
+},(x,w,h,hc)=>{ x.drawImage(hc,0,0);
+  const id=x.getImageData(0,0,w,h), d=id.data;
+  for(let i=0;i<d.length;i+=4){ const v=d[i]; const j=randi(-8,8);
+    d[i]=clamp(v+40+j,0,255); d[i+1]=clamp(v+40+j,0,255); d[i+2]=clamp(v+42+j,0,255); }
+  x.putImageData(id,0,0);
+}, 2.2);
+// wind-rippled sand
+texSet('sand', 256,256, (x,w,h)=>{
+  x.fillStyle='#808080'; x.fillRect(0,0,w,h);
+  for(let y=0;y<h;y++){ const v=128+70*Math.sin(y*0.22+Math.sin(y*0.045)*4);
+    x.fillStyle=`rgb(${v|0},${v|0},${v|0})`; x.fillRect(0,y,w,1); }
+  for(let i=0;i<2400;i++){ const v=randi(100,170); x.fillStyle=`rgb(${v},${v},${v})`; x.fillRect(rand(w),rand(h),randi(1,3),1); }
+},(x,w,h,hc)=>{
+  x.fillStyle='#cfae86'; x.fillRect(0,0,w,h);
+  x.globalAlpha=0.35; x.drawImage(hc,0,0); x.globalAlpha=1;
+}, 1.5);
+// mossy grass
+texSet('grass', 256,256, (x,w,h)=>{
+  x.fillStyle='#777'; x.fillRect(0,0,w,h);
+  for(let i=0;i<4200;i++){ const v=randi(70,190); x.fillStyle=`rgb(${v},${v},${v})`;
+    x.fillRect(rand(w),rand(h),randi(1,2),randi(2,5)); }
+},(x,w,h,hc)=>{
+  x.fillStyle='#8fa06a'; x.fillRect(0,0,w,h);
+  for(let i=0;i<3600;i++){ x.fillStyle=`rgba(${randi(90,150)},${randi(120,175)},${randi(70,110)},0.8)`;
+    x.fillRect(rand(w),rand(h),randi(1,3),randi(2,6)); }
+}, 1.4);
+// fabric weave (normal only, subtle) — for clothing
+texSet('fabric', 128,128, (x,w,h)=>{
+  x.fillStyle='#808080'; x.fillRect(0,0,w,h);
+  for(let y=0;y<h;y+=3){ x.fillStyle=y%6?'#8c8c8c':'#747474'; x.fillRect(0,y,w,1); }
+  for(let X=0;X<w;X+=3){ x.fillStyle=X%6?'#888':'#787878'; x.fillRect(X,0,1,h); }
+  for(let i=0;i<600;i++){ const v=randi(110,150); x.fillStyle=`rgb(${v},${v},${v})`; x.fillRect(rand(w),rand(h),1,1); }
+},(x,w,h)=>{ x.fillStyle='#fff'; x.fillRect(0,0,w,h); }, 1.1);
+
+/* textured-material cache */
+const _tmats=new Map();
+function TM(color, rough, metal, texName, repX=1, repY=1, nscale=1){
+  const key=color+'|'+rough+'|'+metal+'|'+texName+'|'+repX+'|'+repY+'|'+nscale;
+  if(_tmats.has(key)) return _tmats.get(key);
+  const t=TEX[texName];
+  const map=t.map.clone(); map.repeat.set(repX,repY); map.needsUpdate=true;
+  const nrm=t.nrm.clone(); nrm.repeat.set(repX,repY); nrm.needsUpdate=true;
+  const m=new THREE.MeshStandardMaterial({color, roughness:rough, metalness:metal, map, normalMap:nrm, normalScale:new THREE.Vector2(nscale,nscale)});
+  _tmats.set(key,m); return m;
+}
 
 TEX.puff = ctex(64,64,(x,w,h)=>{
   const g=x.createRadialGradient(32,32,2,32,32,30);
@@ -1069,9 +1198,9 @@ const _SEG = [
 ];
 // surface capsules (a,b,radius) — fatter, blended into one body
 const _CAP = [
-  [[0,0.90,0],[0,1.02,0],0.155],    // pelvis
-  [[0,1.00,0],[0,1.20,0],0.150],    // lower torso
-  [[0,1.18,0],[0,1.44,0],0.190],    // chest
+  [[0,0.90,0],[0,1.02,0],0.142],    // pelvis
+  [[0,1.00,0],[0,1.20,0],0.132],    // lower torso (waist)
+  [[0,1.18,0],[0,1.44,0],0.172],    // chest
   [[0,1.42,0],[0,1.575,0],0.052],   // neck
   [[0.205,1.49,0],[0.22,1.205,0],0.058],[[0.22,1.205,0],[0.225,0.95,0],0.046],  // L arm
   [[-0.205,1.49,0],[-0.22,1.205,0],0.058],[[-0.22,1.205,0],[-0.225,0.95,0],0.046],// R arm
@@ -1103,47 +1232,59 @@ function bakeCanonBody(res){
         F[x+row]=dens;
       } } }
   mc.isolation = 1.0; mc.update();
-  const N = mc.count|0, pa = mc.positionArray;
-  const pos = new Float32Array(N*3);
-  for(let i=0;i<N;i++){
-    pos[i*3]   = C[0]+pa[i*3]*H;
-    pos[i*3+1] = C[1]+pa[i*3+1]*H;
-    pos[i*3+2] = C[2]+pa[i*3+2]*H;
+  const rawN = mc.count|0, pa = mc.positionArray;
+  // ---- weld vertices (marching cubes emits a triangle soup) ----
+  const vmap=new Map(), vx=[],vy=[],vz=[], tri=new Uint32Array(rawN);
+  for(let i=0;i<rawN;i++){
+    const x=C[0]+pa[i*3]*H, y=C[1]+pa[i*3+1]*H, z=C[2]+pa[i*3+2]*H;
+    const key=((x*1e4+0.5)|0)+'_'+((y*1e4+0.5)|0)+'_'+((z*1e4+0.5)|0);
+    let id=vmap.get(key);
+    if(id===undefined){ id=vx.length; vmap.set(key,id); vx.push(x); vy.push(y); vz.push(z); }
+    tri[i]=id;
   }
-  // per-vertex skin weights + region (0=legs,1=top)
-  const si=new Float32Array(N*4), sw=new Float32Array(N*4); const region=new Uint8Array(N);
-  for(let i=0;i<N;i++){
-    const x=pos[i*3],y=pos[i*3+1],z=pos[i*3+2];
+  const V=vx.length;
+  // ---- laplacian smoothing (2 rounds) to remove voxel stair-stepping ----
+  const nbr=Array.from({length:V},()=>[]);
+  for(let t=0;t<rawN;t+=3){ const a=tri[t],b=tri[t+1],c=tri[t+2];
+    nbr[a].push(b,c); nbr[b].push(a,c); nbr[c].push(a,b); }
+  for(let round=0;round<2;round++){
+    const nx=new Float32Array(V), ny=new Float32Array(V), nz=new Float32Array(V);
+    for(let i=0;i<V;i++){
+      const nn=nbr[i]; if(!nn.length){ nx[i]=vx[i];ny[i]=vy[i];nz[i]=vz[i]; continue; }
+      let sx=0,sy=0,sz2=0; for(const j of nn){ sx+=vx[j]; sy+=vy[j]; sz2+=vz[j]; }
+      const inv=1/nn.length, lam=0.62;
+      nx[i]=vx[i]+(sx*inv-vx[i])*lam; ny[i]=vy[i]+(sy*inv-vy[i])*lam; nz[i]=vz[i]+(sz2*inv-vz[i])*lam;
+    }
+    for(let i=0;i<V;i++){ vx[i]=nx[i]; vy[i]=ny[i]; vz[i]=nz[i]; }
+  }
+  // ---- per-vertex skin weights + region (0=legs,1=top) ----
+  const si=new Float32Array(V*4), sw=new Float32Array(V*4), region=new Uint8Array(V);
+  for(let i=0;i<V;i++){
+    const x=vx[i],y=vy[i],z=vz[i];
     let b0=0,b1=0,d0=1e9,d1=1e9;
     for(let s=0;s<_SEG.length;s++){ const d=_distSeg(x,y,z,_SEG[s][0],_SEG[s][1]);
       if(d<d0){ d1=d0;b1=b0; d0=d;b0=s; } else if(d<d1){ d1=d;b1=s; } }
     const w0=1/(d0*d0+1e-4), w1=1/(d1*d1+1e-4), ws=w0+w1;
     si[i*4]=b0; si[i*4+1]=b1;
     sw[i*4]=w0/ws; sw[i*4+1]=w1/ws;
-    region[i] = (b0===0||b0===7||b0===8||b0===9||b0===10) ? 0 : 1;   // pelvis+legs = trousers
+    region[i] = (b0===0||b0===7||b0===8||b0===9||b0===10) ? 0 : 1;
   }
-  // reorder triangles into 2 contiguous groups (legs, top) for 2-material coloring
-  const triN=N/3; const g0=[],g1=[];
-  for(let t=0;t<triN;t++){ const a=t*3,b=a+1,c=a+2;
-    const legs=(region[a]?0:1)+(region[b]?0:1)+(region[c]?0:1); // count region0 verts
-    (legs>=2?g0:g1).push(t);
+  // ---- index reordered into 2 contiguous groups (legs, top) ----
+  const g0=[],g1=[];
+  for(let t=0;t<rawN;t+=3){
+    const legs=(region[tri[t]]?0:1)+(region[tri[t+1]]?0:1)+(region[tri[t+2]]?0:1);
+    (legs>=2?g0:g1).push(tri[t],tri[t+1],tri[t+2]);
   }
-  const order=g0.concat(g1);
-  const P=new Float32Array(N*3),SI=new Float32Array(N*4),SW=new Float32Array(N*4);
-  for(let k=0;k<order.length;k++){ const t=order[k];
-    for(let j=0;j<3;j++){ const from=(t*3+j), to=(k*3+j);
-      P[to*3]=pos[from*3]; P[to*3+1]=pos[from*3+1]; P[to*3+2]=pos[from*3+2];
-      for(let m=0;m<4;m++){ SI[to*4+m]=si[from*4+m]; SW[to*4+m]=sw[from*4+m]; }
-    }
-  }
+  const P=new Float32Array(V*3);
+  for(let i=0;i<V;i++){ P[i*3]=vx[i]; P[i*3+1]=vy[i]; P[i*3+2]=vz[i]; }
   const geo=new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(P,3));
-  geo.setAttribute('skinIndex', new THREE.BufferAttribute(SI,4));
-  geo.setAttribute('skinWeight', new THREE.BufferAttribute(SW,4));
-  geo.computeVertexNormals();
-  const c0=g0.length*3;
-  geo.addGroup(0,c0,0);          // legs -> material 0
-  geo.addGroup(c0,g1.length*3,1);// top  -> material 1
+  geo.setAttribute('skinIndex', new THREE.BufferAttribute(si,4));
+  geo.setAttribute('skinWeight', new THREE.BufferAttribute(sw,4));
+  geo.setIndex(g0.concat(g1));
+  geo.computeVertexNormals();                     // welded + indexed -> genuinely smooth shading
+  geo.addGroup(0,g0.length,0);                    // legs -> material 0
+  geo.addGroup(g0.length,g1.length,1);            // top  -> material 1
   return geo;
 }
 
@@ -1151,9 +1292,13 @@ function bakeCanonBody(res){
    Call at the END of mkPerson, AFTER root.scale is set. bones = 11 groups in BODY.order. */
 function attachSkinnedBody(o, root, bones, bodyMat){
   try{
-    if(!BODY.geo) BODY.geo = bakeCanonBody(G.isTouch?56:72);
-    const legMat = o.skirt ? M(o.skin,o.skinRough,o.skinMetal) : M(o.trousers,0.85,0);
-    const topMat = bodyMat || M(o.jacket??o.top, 0.85, 0.02);
+    if(!BODY.geo) BODY.geo = bakeCanonBody(G.isTouch?48:72);
+    const metallicBody = (o.skinMetal||0) > 0.4;   // Cybermen: keep clean metal, no weave
+    const legMat = o.skirt ? M(o.skin,o.skinRough,o.skinMetal)
+                 : metallicBody ? M(o.trousers,0.4,0.85)
+                 : TM(o.trousers,0.88,0,'fabric',7,7,0.5);
+    const topMat = bodyMat || (metallicBody ? M(o.jacket??o.top,0.38,0.85)
+                 : TM(o.jacket??o.top, 0.88, 0.02, 'fabric',7,7,0.5));
     const mesh = new THREE.SkinnedMesh(BODY.geo, [legMat, topMat]);
     mesh.castShadow = mesh.receiveShadow = true;
     mesh.frustumCulled = false;
@@ -1853,7 +1998,7 @@ function mkBuilding(cfg){
   const w=cfg.w??10, floors=cfg.floors??3, d=8;
   const h=floors*3.0+0.8;
   const root=new THREE.Group();
-  const brick=M(cfg.brick??pick(BRICKS),0.92,0);
+  const brick=TM(cfg.brick??pick(BRICKS),0.9,0,'brick',4.5,3.6,1.0);
   root.add(at(box(w,h,d,brick),0,h/2,0));
   root.add(at(box(w+0.3,0.5,d+0.3,M(0x4a4640,0.9,0)),0,h+0.22,0));
   for(let i=0;i<Math.max(1,Math.floor(w/7));i++){
@@ -1914,6 +2059,16 @@ function placeBuilding(Z, b, x, z, rotY=0){
     return {x:x+v.x, z:z+v.z, yaw:rotY};
   });
 }
+/* soft volumetric-style light cone (additive, fades to ground) */
+function mkLightCone(color=0xffc46a, topR=0.16, botR=1.7, h=4.6, opacity=0.07){
+  if(!TEX.coneGrad){ TEX.coneGrad=ctex(16,128,(x,w,hh)=>{ const g=x.createLinearGradient(0,0,0,hh);
+    g.addColorStop(0,'rgba(255,255,255,0.9)'); g.addColorStop(1,'rgba(255,255,255,0)');
+    x.fillStyle=g; x.fillRect(0,0,w,hh); }); }
+  const m=new THREE.MeshBasicMaterial({color, map:TEX.coneGrad, transparent:true, opacity,
+    blending:THREE.AdditiveBlending, depthWrite:false, side:THREE.DoubleSide, fog:false});
+  return new THREE.Mesh(new THREE.CylinderGeometry(topR,botR,h,20,1,true), m);
+}
+
 function mkLampPost(){
   const g=new THREE.Group();
   const dk=M(0x1e2226,0.6,0.5);
@@ -2198,16 +2353,17 @@ function buildLondon(){
   md.position.set(-140,190,120); md.lookAt(0,0,0); S.add(md);
   mkStars(S, 400, 500, 1.3, 0.15);
   // road & sidewalks
-  const road=pl(140,9.4, M(0x14161c,0.28,0.05)); road.rotation.x=-PI/2; road.position.y=0.001; S.add(road);
+  const road=pl(140,9.4, TM(0x3a424e,0.24,0.08,'asphalt',22,2,0.55)); road.rotation.x=-PI/2; road.position.y=0.001; S.add(road);
   for(const s of [-1,1]){
-    const sw=pl(140,3.4, M(0x2a2c30,0.55,0)); sw.rotation.x=-PI/2; sw.position.set(0,0.012,s*6.4); S.add(sw);
+    const sw=pl(140,3.4, TM(0x6a7078,0.6,0,'paving',30,1.5,0.9)); sw.rotation.x=-PI/2; sw.position.set(0,0.012,s*6.4); S.add(sw);
     const curb=box(140,0.09,0.22, M(0x3a3c40,0.6,0)); curb.position.set(0,0.045,s*4.75); S.add(curb);
   }
   const dashG=[]; for(let i=0;i<16;i++) dashG.push(new THREE.PlaneGeometry(2.2,0.16).rotateX(-PI/2).translate(-64+i*8.6,0.015,0));
   S.add(new THREE.Mesh(mergeGeos(dashG), M(0xb8b09a,0.6,0)));
-  // puddles
+  // puddles — near-mirrors that catch lamp glow and the environment
+  const puddleM=new THREE.MeshStandardMaterial({color:0x39404e, roughness:0.02, metalness:1.0, envMapIntensity:2.2});
   for(let i=0;i<14;i++){
-    const p=new THREE.Mesh(new THREE.CircleGeometry(rand(0.5,1.6),18), M(0x11161f,0.04,0.85));
+    const p=new THREE.Mesh(new THREE.CircleGeometry(rand(0.5,1.6),18), puddleM);
     p.rotation.x=-PI/2; p.position.set(rand(-52,52), 0.02, rand(-6.5,6.5)); p.scale.x=rand(1,2.2); S.add(p);
   }
   // buildings
@@ -2232,7 +2388,9 @@ function buildLondon(){
       const L=mkLampPost(); L.root.position.set(x,0,s*6.1); L.root.rotation.y=s>0?PI:0;
       S.add(L.root); markStatic(L.root); circ(Z,x,s*6.1,0.25);
       if([-28,0,28].includes(x)&&s>0 || [-14,14].includes(x)&&s<0){
-        const pt=new THREE.PointLight(0xffc46a, 60, 24, 1.75); pt.position.set(x, 4.6, s*6.1 + (s>0?-0.55:0.55)); S.add(pt);
+        const lz=s*6.1 + (s>0?-0.55:0.55);
+        const pt=new THREE.PointLight(0xffc46a, 60, 24, 1.75); pt.position.set(x, 4.6, lz); S.add(pt);
+        const cone=mkLightCone(0xffc46a, 0.16, 1.8, 4.5, 0.075); cone.position.set(x, 2.45, lz); S.add(cone);
       }
     }
   });
@@ -2366,7 +2524,7 @@ function buildSkaro(){
     const glow=new THREE.Sprite(new THREE.SpriteMaterial({map:TEX.puff, color:c,transparent:true,opacity:0.35,blending:THREE.AdditiveBlending,depthWrite:false,fog:false}));
     glow.position.set(x,y,z); glow.scale.setScalar(r*7); S.add(glow);
   }
-  terrainMesh(Z, 200, 100, M(0xb0793f,1,0));
+  terrainMesh(Z, 200, 100, TM(0xd89a5e,1,0,'sand',30,30,0.9));
   // petrified forest + rocks
   const white=M(0xd9d2c7,0.9,0,{flat:true});
   for(let i=0;i<24;i++){
@@ -2533,7 +2691,7 @@ function buildGraveyard(){
   md.position.set(120,150,-170); md.lookAt(0,0,0); S.add(md);
   const mGlow=new THREE.Sprite(new THREE.SpriteMaterial({map:TEX.puff, color:0xbfd0f8,transparent:true,opacity:0.22,blending:THREE.AdditiveBlending,depthWrite:false,fog:false}));
   mGlow.position.copy(md.position); mGlow.scale.setScalar(70); S.add(mGlow);
-  terrainMesh(Z, 130, 80, M(0x39482f,0.95,0));
+  terrainMesh(Z, 130, 80, TM(0x3e4c36,1,0,'grass',32,32,0.9));
   // gravel path from gate to mausoleum
   const path=pl(3.2,80, M(0x4a4640,0.85,0)); path.rotation.x=-PI/2; path.position.set(0,0.05,4); S.add(path);
   // fences + gate
@@ -2589,6 +2747,7 @@ function buildGraveyard(){
     const flame=new THREE.Mesh(new THREE.SphereGeometry(0.07,8,6), flameM); flame.position.y=2.35; post.add(flame);
     post.position.set(x,gh(x,z),z); S.add(post); circ(Z,x,z,0.2);
     const pt=new THREE.PointLight(0xffB868, 11, 12, 1.9); pt.position.set(x,2.4,z); S.add(pt);
+    const cone=mkLightCone(0xffB868, 0.1, 1.15, 2.3, 0.06); cone.position.set(x, gh(x,z)+1.2, z); S.add(cone);
     Z.updaters.push((dt,t)=>{ pt.intensity=11+Math.sin(t*9+x)*1.6+Math.sin(t*23+z)*0.9; flameM.emissiveIntensity=2.0+Math.sin(t*11+x)*0.5; });
   }
   // ground mist
@@ -3380,6 +3539,7 @@ function switchZone(id, spawnOverride){
   const Z=G.zones[id]; if(!Z) return;
   G.zone=Z;
   renderPass.scene=Z.scene;
+  gtao.scene=Z.scene;
   const s=spawnOverride||Z.spawn;
   G.player.root.position.set(s.x, Z.groundHeight(s.x,s.z), s.z);
   G.yaw=s.yaw??0; G.pitch=-0.1; PL.vel.set(0,0,0);
@@ -3606,6 +3766,7 @@ function loop(now){
       updateBanter(dt); updateToast(dt); updateObjective(); updateFrags();
       drawGauge(t); drawMinimap();
     }
+    film.uniforms.uTime.value=t%97;
     composer.render();
   }
   G.pressed={};

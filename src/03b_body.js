@@ -23,9 +23,9 @@ const _SEG = [
 ];
 // surface capsules (a,b,radius) — fatter, blended into one body
 const _CAP = [
-  [[0,0.90,0],[0,1.02,0],0.155],    // pelvis
-  [[0,1.00,0],[0,1.20,0],0.150],    // lower torso
-  [[0,1.18,0],[0,1.44,0],0.190],    // chest
+  [[0,0.90,0],[0,1.02,0],0.142],    // pelvis
+  [[0,1.00,0],[0,1.20,0],0.132],    // lower torso (waist)
+  [[0,1.18,0],[0,1.44,0],0.172],    // chest
   [[0,1.42,0],[0,1.575,0],0.052],   // neck
   [[0.205,1.49,0],[0.22,1.205,0],0.058],[[0.22,1.205,0],[0.225,0.95,0],0.046],  // L arm
   [[-0.205,1.49,0],[-0.22,1.205,0],0.058],[[-0.22,1.205,0],[-0.225,0.95,0],0.046],// R arm
@@ -57,47 +57,59 @@ function bakeCanonBody(res){
         F[x+row]=dens;
       } } }
   mc.isolation = 1.0; mc.update();
-  const N = mc.count|0, pa = mc.positionArray;
-  const pos = new Float32Array(N*3);
-  for(let i=0;i<N;i++){
-    pos[i*3]   = C[0]+pa[i*3]*H;
-    pos[i*3+1] = C[1]+pa[i*3+1]*H;
-    pos[i*3+2] = C[2]+pa[i*3+2]*H;
+  const rawN = mc.count|0, pa = mc.positionArray;
+  // ---- weld vertices (marching cubes emits a triangle soup) ----
+  const vmap=new Map(), vx=[],vy=[],vz=[], tri=new Uint32Array(rawN);
+  for(let i=0;i<rawN;i++){
+    const x=C[0]+pa[i*3]*H, y=C[1]+pa[i*3+1]*H, z=C[2]+pa[i*3+2]*H;
+    const key=((x*1e4+0.5)|0)+'_'+((y*1e4+0.5)|0)+'_'+((z*1e4+0.5)|0);
+    let id=vmap.get(key);
+    if(id===undefined){ id=vx.length; vmap.set(key,id); vx.push(x); vy.push(y); vz.push(z); }
+    tri[i]=id;
   }
-  // per-vertex skin weights + region (0=legs,1=top)
-  const si=new Float32Array(N*4), sw=new Float32Array(N*4); const region=new Uint8Array(N);
-  for(let i=0;i<N;i++){
-    const x=pos[i*3],y=pos[i*3+1],z=pos[i*3+2];
+  const V=vx.length;
+  // ---- laplacian smoothing (2 rounds) to remove voxel stair-stepping ----
+  const nbr=Array.from({length:V},()=>[]);
+  for(let t=0;t<rawN;t+=3){ const a=tri[t],b=tri[t+1],c=tri[t+2];
+    nbr[a].push(b,c); nbr[b].push(a,c); nbr[c].push(a,b); }
+  for(let round=0;round<2;round++){
+    const nx=new Float32Array(V), ny=new Float32Array(V), nz=new Float32Array(V);
+    for(let i=0;i<V;i++){
+      const nn=nbr[i]; if(!nn.length){ nx[i]=vx[i];ny[i]=vy[i];nz[i]=vz[i]; continue; }
+      let sx=0,sy=0,sz2=0; for(const j of nn){ sx+=vx[j]; sy+=vy[j]; sz2+=vz[j]; }
+      const inv=1/nn.length, lam=0.62;
+      nx[i]=vx[i]+(sx*inv-vx[i])*lam; ny[i]=vy[i]+(sy*inv-vy[i])*lam; nz[i]=vz[i]+(sz2*inv-vz[i])*lam;
+    }
+    for(let i=0;i<V;i++){ vx[i]=nx[i]; vy[i]=ny[i]; vz[i]=nz[i]; }
+  }
+  // ---- per-vertex skin weights + region (0=legs,1=top) ----
+  const si=new Float32Array(V*4), sw=new Float32Array(V*4), region=new Uint8Array(V);
+  for(let i=0;i<V;i++){
+    const x=vx[i],y=vy[i],z=vz[i];
     let b0=0,b1=0,d0=1e9,d1=1e9;
     for(let s=0;s<_SEG.length;s++){ const d=_distSeg(x,y,z,_SEG[s][0],_SEG[s][1]);
       if(d<d0){ d1=d0;b1=b0; d0=d;b0=s; } else if(d<d1){ d1=d;b1=s; } }
     const w0=1/(d0*d0+1e-4), w1=1/(d1*d1+1e-4), ws=w0+w1;
     si[i*4]=b0; si[i*4+1]=b1;
     sw[i*4]=w0/ws; sw[i*4+1]=w1/ws;
-    region[i] = (b0===0||b0===7||b0===8||b0===9||b0===10) ? 0 : 1;   // pelvis+legs = trousers
+    region[i] = (b0===0||b0===7||b0===8||b0===9||b0===10) ? 0 : 1;
   }
-  // reorder triangles into 2 contiguous groups (legs, top) for 2-material coloring
-  const triN=N/3; const g0=[],g1=[];
-  for(let t=0;t<triN;t++){ const a=t*3,b=a+1,c=a+2;
-    const legs=(region[a]?0:1)+(region[b]?0:1)+(region[c]?0:1); // count region0 verts
-    (legs>=2?g0:g1).push(t);
+  // ---- index reordered into 2 contiguous groups (legs, top) ----
+  const g0=[],g1=[];
+  for(let t=0;t<rawN;t+=3){
+    const legs=(region[tri[t]]?0:1)+(region[tri[t+1]]?0:1)+(region[tri[t+2]]?0:1);
+    (legs>=2?g0:g1).push(tri[t],tri[t+1],tri[t+2]);
   }
-  const order=g0.concat(g1);
-  const P=new Float32Array(N*3),SI=new Float32Array(N*4),SW=new Float32Array(N*4);
-  for(let k=0;k<order.length;k++){ const t=order[k];
-    for(let j=0;j<3;j++){ const from=(t*3+j), to=(k*3+j);
-      P[to*3]=pos[from*3]; P[to*3+1]=pos[from*3+1]; P[to*3+2]=pos[from*3+2];
-      for(let m=0;m<4;m++){ SI[to*4+m]=si[from*4+m]; SW[to*4+m]=sw[from*4+m]; }
-    }
-  }
+  const P=new Float32Array(V*3);
+  for(let i=0;i<V;i++){ P[i*3]=vx[i]; P[i*3+1]=vy[i]; P[i*3+2]=vz[i]; }
   const geo=new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(P,3));
-  geo.setAttribute('skinIndex', new THREE.BufferAttribute(SI,4));
-  geo.setAttribute('skinWeight', new THREE.BufferAttribute(SW,4));
-  geo.computeVertexNormals();
-  const c0=g0.length*3;
-  geo.addGroup(0,c0,0);          // legs -> material 0
-  geo.addGroup(c0,g1.length*3,1);// top  -> material 1
+  geo.setAttribute('skinIndex', new THREE.BufferAttribute(si,4));
+  geo.setAttribute('skinWeight', new THREE.BufferAttribute(sw,4));
+  geo.setIndex(g0.concat(g1));
+  geo.computeVertexNormals();                     // welded + indexed -> genuinely smooth shading
+  geo.addGroup(0,g0.length,0);                    // legs -> material 0
+  geo.addGroup(g0.length,g1.length,1);            // top  -> material 1
   return geo;
 }
 
@@ -106,8 +118,12 @@ function bakeCanonBody(res){
 function attachSkinnedBody(o, root, bones, bodyMat){
   try{
     if(!BODY.geo) BODY.geo = bakeCanonBody(G.isTouch?48:72);
-    const legMat = o.skirt ? M(o.skin,o.skinRough,o.skinMetal) : M(o.trousers,0.85,0);
-    const topMat = bodyMat || M(o.jacket??o.top, 0.85, 0.02);
+    const metallicBody = (o.skinMetal||0) > 0.4;   // Cybermen: keep clean metal, no weave
+    const legMat = o.skirt ? M(o.skin,o.skinRough,o.skinMetal)
+                 : metallicBody ? M(o.trousers,0.4,0.85)
+                 : TM(o.trousers,0.88,0,'fabric',7,7,0.5);
+    const topMat = bodyMat || (metallicBody ? M(o.jacket??o.top,0.38,0.85)
+                 : TM(o.jacket??o.top, 0.88, 0.02, 'fabric',7,7,0.5));
     const mesh = new THREE.SkinnedMesh(BODY.geo, [legMat, topMat]);
     mesh.castShadow = mesh.receiveShadow = true;
     mesh.frustumCulled = false;
