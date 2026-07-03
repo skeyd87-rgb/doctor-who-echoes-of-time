@@ -34,6 +34,7 @@ const G = {
   camOverride:null,        // debug free camera {pos, yaw, pitch}
   voice:true, sound:true,
   moveVec:null, touchRun:false,   // touch analog movement
+  perfMin:false,           // true = performance floor (bloom off, 1x)
 };
 { const q=new URLSearchParams(location.search);
   G.isTouch = q.has('touch') ? true : q.has('notouch') ? false
@@ -46,7 +47,7 @@ window.DW = { G, THREE };  // debug handle
 const canvas = document.getElementById('c');
 const renderer = new THREE.WebGLRenderer({canvas, antialias:true, powerPreference:'high-performance'});
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.22;
+renderer.toneMappingExposure = 1.42;
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -60,10 +61,12 @@ composer.addPass(bloom);
 composer.addPass(new OutputPass());
 
 function applyQuality(){
-  const hi = G.quality==='high';
-  renderer.setPixelRatio(hi?Math.min(devicePixelRatio,2):1);
-  bloom.enabled = hi;
-  for(const id in G.zones){const s=G.zones[id].sun; if(s&&s.shadow){s.shadow.mapSize.setScalar(hi?2048:1024); if(s.shadow.map){s.shadow.map.dispose();s.shadow.map=null;}}}
+  const hi = G.quality==='high', min = G.perfMin;
+  // low tier now KEEPS bloom + a sharp-ish pixel ratio; bloom only dies at the perf floor
+  renderer.setPixelRatio(min ? 1 : hi ? Math.min(devicePixelRatio,2) : Math.min(devicePixelRatio,1.5));
+  bloom.enabled = !min;
+  bloom.strength = hi ? 0.6 : 0.5;
+  for(const id in G.zones){const s=G.zones[id].sun; if(s&&s.shadow){s.shadow.mapSize.setScalar(hi&&!min?2048:1024); if(s.shadow.map){s.shadow.map.dispose();s.shadow.map=null;}}}
   renderer.shadowMap.enabled = true;
   resize();
 }

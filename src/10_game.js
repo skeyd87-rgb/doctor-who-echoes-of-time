@@ -224,10 +224,13 @@ function loop(now){
   const rawDt=(now-_last)/1000;
   const dt=Math.min(rawDt, 0.05); _last=now;
   G.time+=dt;
-  // auto performance mode
-  if(G.quality==='high'&&G.state!=='menu'){
-    if(rawDt>0.09) _slowN++; else _slowN=Math.max(0,_slowN-2);
-    if(_slowN>40){ G.quality='low'; applyQuality(); toastMsg('PERFORMANCE MODE','graphics reduced for smoothness'); }
+  // auto performance mode: high -> low -> perf floor (bloom off)
+  if(G.state!=='menu' && !G.perfMin){
+    if(rawDt>0.10) _slowN++; else _slowN=Math.max(0,_slowN-2);
+    if(_slowN>45){ _slowN=0;
+      if(G.quality==='high'){ G.quality='low'; applyQuality(); toastMsg('PERFORMANCE MODE','graphics tuned for smoothness'); }
+      else { G.perfMin=true; applyQuality(); }
+    }
   }
   const t=G.time;
   if(G.state!=='menu'){

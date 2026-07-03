@@ -29,10 +29,10 @@ function buildLondon(){
   const Z=newZone('london','LONDON','October 1963', {bound:60, spawn:{x:0,z:2.5,yaw:PI/2}, tardis:{x:-6,z:5.0,yaw:0.5}, surface:'wet',
     ambience:{noise:{f:900,v:0.055,type:'bandpass',q:0.4}, drone:{notes:[49,73.4],v:0.010,f:220}}});
   const S=Z.scene;
-  S.background=new THREE.Color(0x070b14);
-  S.fog=new THREE.FogExp2(0x0a111e, 0.0135);
-  S.add(new THREE.HemisphereLight(0x33465e, 0x0e0e12, 1.05));
-  const moon=new THREE.DirectionalLight(0x9db4d8, 0.8); moon.position.set(-30,48,20);
+  S.background=new THREE.Color(0x0c1220);
+  S.fog=new THREE.FogExp2(0x101828, 0.0112);
+  S.add(new THREE.HemisphereLight(0x4a6488, 0x1a1c24, 1.7));
+  const moon=new THREE.DirectionalLight(0xbcd0f0, 1.25); moon.position.set(-30,48,20);
   moon.castShadow=true; moon.shadow.mapSize.setScalar(2048);
   Object.assign(moon.shadow.camera,{left:-65,right:65,top:65,bottom:-65,near:5,far:140}); S.add(moon); Z.sun=moon;
   // moon disc
@@ -131,8 +131,8 @@ function buildTardisInterior(){
     ambience:{drone:{notes:[36.7,55,73.4],v:0.022,f:260,type:'sawtooth'}, noise:{f:180,v:0.012}}});
   const S=Z.scene;
   S.background=new THREE.Color(0x05070c);
-  S.add(new THREE.HemisphereLight(0x9a8a68, 0x14161c, 0.8));
-  const key=new THREE.DirectionalLight(0xcfd8e8, 0.55); key.position.set(4,9,3); key.castShadow=true;
+  S.add(new THREE.HemisphereLight(0xb0a074, 0x1c1e26, 1.05));
+  const key=new THREE.DirectionalLight(0xdfe6f2, 0.75); key.position.set(4,9,3); key.castShadow=true;
   key.shadow.mapSize.setScalar(1024);
   Object.assign(key.shadow.camera,{left:-10,right:10,top:10,bottom:-10,near:2,far:24}); S.add(key); Z.sun=key;
   // floor & ceiling
@@ -286,8 +286,8 @@ function buildMoonbase(){
     gravity:-5.2, jumpV:5.0, groundHeight:gh, ambience:{drone:{notes:[110,164.8],v:0.008,f:600,type:'sine'}, noise:{f:120,v:0.006}}});
   const S=Z.scene;
   S.background=new THREE.Color(0x020204);
-  S.add(new THREE.HemisphereLight(0x30343e, 0x000000, 0.16));
-  const sun=new THREE.DirectionalLight(0xffffff, 1.9); sun.position.set(60,42,-30); sun.castShadow=true;
+  S.add(new THREE.HemisphereLight(0x4a5266, 0x0a0a10, 0.5));
+  const sun=new THREE.DirectionalLight(0xffffff, 2.0); sun.position.set(60,42,-30); sun.castShadow=true;
   sun.shadow.mapSize.setScalar(2048);
   Object.assign(sun.shadow.camera,{left:-75,right:75,top:75,bottom:-75,near:5,far:200}); S.add(sun); Z.sun=sun;
   mkStars(S, 420, 1900, 1.7, 0.0);
@@ -364,13 +364,13 @@ function buildGraveyard(){
   const Z=newZone('grave','WESTER DRUMLINS','The old churchyard — don\'t blink', {bound:52, spawn:{x:0,z:40,yaw:PI}, tardis:{x:-4.5,z:40.5,yaw:0.7}, surface:'grass',
     groundHeight:gh, ambience:{noise:{f:600,v:0.05,type:'bandpass',q:0.5}, drone:{notes:[65.4,77.8,98],v:0.016,f:240}}});
   const S=Z.scene;
-  S.fog=new THREE.FogExp2(0x2a3040, 0.019);
-  S.background=new THREE.Color(0x181b26);
-  S.add(new THREE.HemisphereLight(0x46527a, 0x161822, 1.35));
-  const moon=new THREE.DirectionalLight(0xb0c2f5, 1.0); moon.position.set(25,40,-30); moon.castShadow=true;
+  S.fog=new THREE.FogExp2(0x333c52, 0.0145);
+  S.background=new THREE.Color(0x222634);
+  S.add(new THREE.HemisphereLight(0x5c6a94, 0x1e2230, 2.0));
+  const moon=new THREE.DirectionalLight(0xc2d2f8, 1.55); moon.position.set(25,40,-30); moon.castShadow=true;
   moon.shadow.mapSize.setScalar(2048);
   Object.assign(moon.shadow.camera,{left:-55,right:55,top:55,bottom:-55,near:5,far:130}); S.add(moon); Z.sun=moon;
-  const gfill=new THREE.DirectionalLight(0x8a9ac8, 0.4); gfill.position.set(-10,18,55); S.add(gfill);
+  const gfill=new THREE.DirectionalLight(0x9aaad8, 0.65); gfill.position.set(-10,18,55); S.add(gfill);
   const md=new THREE.Mesh(new THREE.CircleGeometry(11,24), new THREE.MeshBasicMaterial({color:0xdfe8fa,fog:false}));
   md.position.set(120,150,-170); md.lookAt(0,0,0); S.add(md);
   const mGlow=new THREE.Sprite(new THREE.SpriteMaterial({map:TEX.puff, color:0xbfd0f8,transparent:true,opacity:0.22,blending:THREE.AdditiveBlending,depthWrite:false,fog:false}));
