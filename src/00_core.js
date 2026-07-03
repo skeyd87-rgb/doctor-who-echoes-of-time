@@ -6,6 +6,7 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { MarchingCubes } from 'three/addons/objects/MarchingCubes.js';
 import * as BufferGeometryUtils from 'three/addons/utils/BufferGeometryUtils.js';
 
 const TAU = Math.PI*2, PI = Math.PI;
@@ -41,6 +42,7 @@ const G = {
   G.isTouch = q.has('touch') ? true : q.has('notouch') ? false
     : (matchMedia('(pointer:coarse)').matches && !matchMedia('(pointer:fine)').matches) || (navigator.maxTouchPoints>1 && innerWidth<1100);
   if(G.isTouch && !q.has('low') && !q.has('high')) G.quality='low';
+  G.skinBody = q.has('flat') ? false : true;   // seamless single-mesh bodies (disable with ?flat)
 }
 window.DW = { G, THREE };  // debug handle
 

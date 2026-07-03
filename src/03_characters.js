@@ -11,6 +11,8 @@ function mkPerson(o={}){
     skinRough:0.75, skinMetal:0, helmetGlass:false,
   }, o);
   const b=o.build;
+  const SKIN = G.skinBody && !o.noSkin;   // seamless single-mesh body
+  const rb = SKIN?1:b;                     // bones at canonical width when skinned (build applied via scale)
   const skin = M(o.skin, o.skinRough, o.skinMetal);
   const hairM = M(o.hair, 0.9, 0);
   const topM = M(o.jacket??o.top, 0.85, 0.02);
@@ -21,12 +23,14 @@ function mkPerson(o={}){
 
   const root = new THREE.Group();
   const hips = new THREE.Group(); hips.position.y = 0.98; root.add(hips);
-  hips.add(rbox(0.30*b,0.20,0.19,0.06, o.skirt?M(o.skirt,0.85,0):trouserM));
+  if(!SKIN) hips.add(rbox(0.30*b,0.20,0.19,0.06, o.skirt?M(o.skirt,0.85,0):trouserM));
 
   /* ---- torso ---- */
   const torso = new THREE.Group(); torso.position.y = 0.06; hips.add(torso);
-  const waist = rbox(0.29*b,0.22,0.19,0.07, o.jacket&&o.coatLen>0.3?topM:(o.skirt?shirtM:(o.jacket?shirtM:topM))); waist.position.y=0.13; torso.add(waist);
-  const chest = rbox(0.35*b,0.32,0.225,0.09, o.jacket?M(o.jacket,0.85,0.02):topM); chest.position.y=0.345; torso.add(chest);
+  if(!SKIN){
+    const waist = rbox(0.29*b,0.22,0.19,0.07, o.jacket&&o.coatLen>0.3?topM:(o.skirt?shirtM:(o.jacket?shirtM:topM))); waist.position.y=0.13; torso.add(waist);
+    const chest = rbox(0.35*b,0.32,0.225,0.09, o.jacket?M(o.jacket,0.85,0.02):topM); chest.position.y=0.345; torso.add(chest);
+  }
   if(o.jacket){ // lapels + shirt strip + optional tie
     const strip = box(0.085,0.24,0.02, shirtM); strip.position.set(0,0.35,0.112); torso.add(strip);
     for(const s of [-1,1]){ const lap = box(0.06,0.20,0.022, M(o.jacket,0.8,0.02)); lap.position.set(s*0.058,0.39,0.118); lap.rotation.z = s*0.28; torso.add(lap); }
@@ -34,11 +38,13 @@ function mkPerson(o={}){
       const tb=box(0.042,0.20,0.014,M(o.tie,0.7,0)); tb.position.set(0,0.35,0.121); torso.add(tb); }
   }
   for(const s of [-1,1]){ const col = box(0.075,0.045,0.05, o.jacket?M(o.jacket,0.8,0.02):topM); col.position.set(s*0.055,0.505,0.02); col.rotation.z=s*0.35; torso.add(col); }
-  // trapezius / upper-back mass — kills the "flat box" torso read
+  // trapezius / upper-back mass — kills the "flat box" torso read (segmented body only)
   const bodyM = o.jacket?M(o.jacket,0.85,0.02):topM;
-  const trap = rbox(0.185*b,0.085,0.15,0.05, bodyM); trap.position.set(0,0.48,-0.012); torso.add(trap);
-  const upperBack = sph(0.155*b, bodyM, 16,12); upperBack.scale.set(1.02,0.82,0.72); upperBack.position.set(0,0.365,-0.026); torso.add(upperBack);
-  if(!o.jacket && !o.skirt){ for(const s of [-1,1]){ const pec=sph(0.10*b, topM, 14,10); pec.scale.set(1,0.72,0.6); pec.position.set(s*0.082*b,0.40,0.10); torso.add(pec); } }
+  if(!SKIN){
+    const trap = rbox(0.185*b,0.085,0.15,0.05, bodyM); trap.position.set(0,0.48,-0.012); torso.add(trap);
+    const upperBack = sph(0.155*b, bodyM, 16,12); upperBack.scale.set(1.02,0.82,0.72); upperBack.position.set(0,0.365,-0.026); torso.add(upperBack);
+    if(!o.jacket && !o.skirt){ for(const s of [-1,1]){ const pec=sph(0.10*b, topM, 14,10); pec.scale.set(1,0.72,0.6); pec.position.set(s*0.082*b,0.40,0.10); torso.add(pec); } }
+  }
 
   /* coat tails / skirt */
   let coatF=null, coatB=null;
@@ -54,14 +60,16 @@ function mkPerson(o={}){
   /* ---- arms ---- */
   const sleeveM = o.jacket?M(o.jacket,0.85,0.02):topM;
   const mkArm = s=>{
-    const sh = new THREE.Group(); sh.position.set(s*(0.185*b+0.035),0.455,0); torso.add(sh);
-    const delt = sph(0.06, sleeveM, 16,12); delt.scale.set(1,0.95,1); delt.position.set(s*-0.01,-0.01,0); sh.add(delt); // rounded shoulder
-    const ua = cap(0.047,0.185, sleeveM); ua.position.y=-0.15; sh.add(ua);
+    const sh = new THREE.Group(); sh.position.set(s*(0.185*rb+0.035),0.455,0); torso.add(sh);
     const el = new THREE.Group(); el.position.y=-0.29; sh.add(el);
-    const elbow = sph(0.045, sleeveM, 12,10); el.add(elbow);
-    const sleeveDown = o.jacket||o.sleeves!=='short';
-    const fa = cap(0.04,0.17, sleeveDown?sleeveM:skin); fa.position.y=-0.125; el.add(fa);
-    if(sleeveDown){ const cuff=cap(0.043,0.02,skin); cuff.position.y=-0.235; el.add(cuff); } // wrist skin
+    if(!SKIN){
+      const delt = sph(0.06, sleeveM, 16,12); delt.scale.set(1,0.95,1); delt.position.set(s*-0.01,-0.01,0); sh.add(delt);
+      const ua = cap(0.047,0.185, sleeveM); ua.position.y=-0.15; sh.add(ua);
+      const elbow = sph(0.045, sleeveM, 12,10); el.add(elbow);
+      const sleeveDown = o.jacket||o.sleeves!=='short';
+      const fa = cap(0.04,0.17, sleeveDown?sleeveM:skin); fa.position.y=-0.125; el.add(fa);
+      if(sleeveDown){ const cuff=cap(0.043,0.02,skin); cuff.position.y=-0.235; el.add(cuff); }
+    }
     const hand = new THREE.Group(); hand.position.y=-0.265; el.add(hand);
     const palm = rbox(0.068,0.08,0.04,0.018, skin); palm.position.y=-0.035; hand.add(palm);
     for(let i=0;i<4;i++){ const fg=rbox(0.0155,0.062,0.03,0.007, skin); fg.position.set((i-1.5)*0.0175,-0.10,0.002); hand.add(fg); }
@@ -73,12 +81,14 @@ function mkPerson(o={}){
   /* ---- legs ---- */
   const legM = o.skirt?skin:trouserM;
   const mkLeg = s=>{
-    const hip = new THREE.Group(); hip.position.set(s*0.095*b,-0.03,0); hips.add(hip);
-    const th = cap(0.07,0.30, legM); th.position.y=-0.215; hip.add(th);
+    const hip = new THREE.Group(); hip.position.set(s*0.095*rb,-0.03,0); hips.add(hip);
     const kn = new THREE.Group(); kn.position.y=-0.43; hip.add(kn);
-    const knee = sph(0.058, legM, 12,10); knee.scale.set(1,0.9,1); kn.add(knee);
-    const sh2 = cap(0.05,0.32, legM); sh2.position.y=-0.21; kn.add(sh2);
-    const calf = sph(0.062, legM, 12,10); calf.scale.set(0.9,1.3,0.85); calf.position.set(0,-0.16,-0.02); kn.add(calf);
+    if(!SKIN){
+      const th = cap(0.07,0.30, legM); th.position.y=-0.215; hip.add(th);
+      const knee = sph(0.058, legM, 12,10); knee.scale.set(1,0.9,1); kn.add(knee);
+      const sh2 = cap(0.05,0.32, legM); sh2.position.y=-0.21; kn.add(sh2);
+      const calf = sph(0.062, legM, 12,10); calf.scale.set(0.9,1.3,0.85); calf.position.set(0,-0.16,-0.02); kn.add(calf);
+    }
     const foot = new THREE.Group(); foot.position.y=-0.45; kn.add(foot);
     const ankle = sph(0.045, o.skirt?skin:M(o.shoes,0.5,0.1), 10,8); foot.add(ankle);
     const f = rbox(0.092,0.062,0.20,0.025, shoeM); f.position.set(0,-0.06,0.05); foot.add(f);
@@ -210,8 +220,15 @@ function mkPerson(o={}){
       }
     }
   };
-  root.scale.setScalar(o.height/1.75);
   root.traverse(m=>{ if(m.isMesh){ m.castShadow=true; m.receiveShadow=true; } });
+  if(SKIN){
+    const h=o.height/1.75;
+    root.scale.set(h*b, h, h*b);              // build widens; height scales all
+    P.body = attachSkinnedBody(o, root, [hips,torso,neck, armL.sh,armL.el, armR.sh,armR.el, legL.hip,legL.kn, legR.hip,legR.kn]);
+    if(!P.body){ /* bake failed: fall back to segmented on next build */ }
+  } else {
+    root.scale.setScalar(o.height/1.75);
+  }
   return P;
 }
 
