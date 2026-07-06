@@ -59,6 +59,10 @@
   #goldvig{position:fixed;inset:0;pointer-events:none;background:radial-gradient(ellipse at center,transparent 30%,rgba(230,180,60,.5) 100%);opacity:0;transition:opacity .6s;z-index:9}
   #minimap{position:absolute;right:24px;top:22px;width:148px;height:148px;border-radius:50%;border:1.5px solid rgba(122,170,235,.35);background:rgba(6,10,20,.55);box-shadow:0 0 20px rgba(0,0,0,.5)}
   #zonechip{position:absolute;right:24px;top:178px;width:148px;text-align:center;font-size:10px;letter-spacing:.26em;color:#8fa5c8;text-transform:uppercase}
+  #siltally{position:absolute;right:24px;top:210px;width:148px;text-align:center;color:#c86a6a}
+  #siltally-marks{display:block;font-size:22px;letter-spacing:2px;line-height:1;font-family:'Courier New',monospace;color:#e08a8a;text-shadow:0 0 8px rgba(200,60,60,.5);min-height:24px}
+  #siltally small{font-size:9px;letter-spacing:.28em;color:#8a6a6a}
+  #forgetvig{position:fixed;inset:0;pointer-events:none;background:radial-gradient(ellipse at center,rgba(20,10,30,0) 30%,rgba(10,6,20,.9) 100%);opacity:0;transition:opacity .1s;z-index:9;mix-blend-mode:multiply}
   #sonicring{position:absolute;left:50%;top:50%;width:56px;height:56px;margin:-28px;pointer-events:none}
 
   /* ---------- dialogue ---------- */
@@ -147,16 +151,18 @@
   <div id="xh"></div>
   <canvas id="gauge" width="208" height="208"></canvas>
   <div id="gauge-label">Regeneration</div>
-  <div id="frags"><div class="frag"></div><div class="frag"></div><div class="frag"></div><div class="frag"></div></div>
+  <div id="frags"><div class="frag"></div><div class="frag"></div><div class="frag"></div><div class="frag"></div><div class="frag"></div></div>
   <div id="objective"><small>Objective</small><span id="obj-text"></span></div>
   <div id="prompt" class="hidden"></div>
   <div id="banter"></div>
   <div id="toast"><div class="t1"></div><div class="t2"></div></div>
   <canvas id="minimap" width="296" height="296"></canvas>
   <div id="zonechip"></div>
+  <div id="siltally" class="hidden"><span id="siltally-marks"></span><small>REMEMBERED</small></div>
 </div>
 <div id="vig"></div>
 <div id="goldvig"></div>
+<div id="forgetvig"></div>
 
 <div id="dlg" class="ov hidden">
   <div id="dlg-panel">
@@ -237,7 +243,6 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
-import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { MarchingCubes } from 'three/addons/objects/MarchingCubes.js';
@@ -295,31 +300,47 @@ const _sz = renderer.getDrawingBufferSize(new THREE.Vector2());
 const _ct = new THREE.WebGLRenderTarget(_sz.x, _sz.y, {type:THREE.HalfFloatType, samples: G.isTouch?2:4});
 const composer = new EffectComposer(renderer, _ct);
 const renderPass = new RenderPass(new THREE.Scene(), camera);
-const gtao = new GTAOPass(renderPass.scene, camera, innerWidth, innerHeight);
-gtao.enabled = false;
 const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth,innerHeight), 0.5, 0.5, 0.82);
 composer.addPass(renderPass);
-composer.addPass(gtao);
 composer.addPass(bloom);
 composer.addPass(new OutputPass());
 // cinematic finish: vignette + film grain + gentle saturation (runs in display space, after OutputPass)
 const film = new ShaderPass({
-  uniforms:{ tDiffuse:{value:null}, uTime:{value:0} },
+  uniforms:{ tDiffuse:{value:null}, uTime:{value:0},
+    uTint:{value:new THREE.Vector3(1,1,1)}, uContrast:{value:1.1}, uSat:{value:1.08},
+    uLift:{value:new THREE.Vector3(0,0,0)}, uVig:{value:0.34} },
   vertexShader:`varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
   fragmentShader:`
-    uniform sampler2D tDiffuse; uniform float uTime; varying vec2 vUv;
+    uniform sampler2D tDiffuse; uniform float uTime, uContrast, uSat, uVig;
+    uniform vec3 uTint, uLift; varying vec2 vUv;
     void main(){
       vec4 c = texture2D(tDiffuse, vUv);
       float l = dot(c.rgb, vec3(0.299,0.587,0.114));
-      c.rgb = mix(vec3(l), c.rgb, 1.10);                            // saturation lift
+      c.rgb = mix(vec3(l), c.rgb, uSat);                           // saturation
+      c.rgb = (c.rgb - 0.5) * uContrast + 0.5;                     // contrast
+      c.rgb = c.rgb * uTint + uLift;                               // per-zone grade
       float d = distance(vUv, vec2(0.5));
-      c.rgb *= 1.0 - 0.34*smoothstep(0.42, 0.86, d);                // vignette
+      c.rgb *= 1.0 - uVig*smoothstep(0.40, 0.88, d);               // vignette
       float n = fract(sin(dot(vUv*vec2(1420.9,1130.3), vec2(12.9898,78.233)) + uTime*61.7)*43758.5453);
-      c.rgb += (n-0.5)*0.028;                                       // grain
-      gl_FragColor = c;
+      c.rgb += (n-0.5)*0.026;                                      // grain
+      gl_FragColor = vec4(max(c.rgb,0.0), c.a);
     }`,
 });
 composer.addPass(film);
+const ZONE_GRADE = {
+  london:{tint:[0.90,0.97,1.13], con:1.13, sat:1.06, lift:[0,0.002,0.012], vig:0.36},
+  tardis:{tint:[1.08,1.00,0.93], con:1.08, sat:1.10, lift:[0.006,0.002,0], vig:0.30},
+  skaro :{tint:[1.15,1.00,0.85], con:1.14, sat:1.14, lift:[0.02,0.004,0], vig:0.34},
+  moon  :{tint:[0.90,0.97,1.14], con:1.20, sat:0.96, lift:[0,0,0.004], vig:0.30},
+  grave :{tint:[0.90,1.02,1.04], con:1.12, sat:0.82, lift:[0,0.004,0.006], vig:0.40},
+  silence:{tint:[0.92,1.01,1.08], con:1.14, sat:0.80, lift:[0,0.004,0.008], vig:0.42},
+};
+function applyGrade(id){
+  const g=ZONE_GRADE[id]||{tint:[1,1,1],con:1.1,sat:1.05,lift:[0,0,0],vig:0.34};
+  film.uniforms.uTint.value.set(...g.tint);
+  film.uniforms.uContrast.value=g.con; film.uniforms.uSat.value=g.sat;
+  film.uniforms.uLift.value.set(...g.lift); film.uniforms.uVig.value=g.vig;
+}
 // image-based lighting: subtle studio environment gives PBR materials real reflections
 const _pmrem = new THREE.PMREMGenerator(renderer);
 const ENV = _pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
@@ -330,7 +351,6 @@ function applyQuality(){
   renderer.setPixelRatio(min ? 1 : hi ? Math.min(devicePixelRatio,2) : Math.min(devicePixelRatio,1.5));
   bloom.enabled = !min;
   bloom.strength = hi ? 0.6 : 0.5;
-  gtao.enabled = hi && !G.isTouch && !min;      // ambient occlusion: desktop-high only
   film.enabled = !min;
   for(const id in G.zones){const s=G.zones[id].sun; if(s&&s.shadow){s.shadow.mapSize.setScalar(hi&&!min?2048:1024); if(s.shadow.map){s.shadow.map.dispose();s.shadow.map=null;}}}
   renderer.shadowMap.enabled = true;
@@ -1846,6 +1866,147 @@ function addAuton(Z, x, z, opts={}){
   Z.enemies.push(E); return E;
 }
 
+/* =============================== THE SILENCE =============================== */
+function mkSilenceHead(){
+  const g=new THREE.Group();
+  const flesh=M(0x8f9498,0.62,0);          // pale grey, waxy
+  const dark=M(0x0c0d10,0.9,0);
+  // elongated bulbous cranium
+  const cran=sph(0.12, flesh, 22,16); cran.scale.set(0.92,1.18,1.0); cran.position.y=0.055; g.add(cran);
+  // gaunt sunken cheeks / long jaw
+  const face=rbox(0.15,0.20,0.11,0.05, flesh); face.position.set(0,-0.03,0.02); g.add(face);
+  const jaw=rbox(0.12,0.075,0.10,0.03, flesh); jaw.position.set(0,-0.115,0.018); g.add(jaw);
+  // deep dark eye sockets (the Munch "Scream" look)
+  for(const s of [-1,1]){
+    const socket=sph(0.038, dark, 12,10); socket.scale.set(1,1.25,0.7); socket.position.set(s*0.052,0.02,0.072); g.add(socket);
+    const ridge=rbox(0.06,0.02,0.03,0.008, flesh); ridge.position.set(s*0.05,0.075,0.088); ridge.rotation.z=-s*0.16; g.add(ridge);
+    // faint eye — glows when it becomes aware of you
+    const em=new THREE.MeshStandardMaterial({color:0x2a3540, emissive:0x88b0ff, emissiveIntensity:0, roughness:0.3});
+    const eye=new THREE.Mesh(new THREE.SphereGeometry(0.015,10,8), em); eye.position.set(s*0.052,0.02,0.092); g.add(eye);
+    g.userData['eye'+(s>0?'L':'R')]=em;
+  }
+  // sunken nose slit + lipless mouth
+  g.add(at(rbox(0.03,0.06,0.03,0.008,flesh),0,-0.04,0.10));
+  const mouth=sph(0.045, dark, 12,8); mouth.scale.set(1.05,0.7,0.5); mouth.position.set(0,-0.11,0.075); g.add(mouth);
+  const lipT=rbox(0.07,0.012,0.02,0.005, flesh); lipT.position.set(0,-0.082,0.088); g.add(lipT);
+  // hairless, slightly wrinkled temples
+  for(const s of [-1,1]){ const tmp=rbox(0.02,0.11,0.05,0.01, M(0x7f8488,0.7,0)); tmp.position.set(s*0.10,0.02,0.02); g.add(tmp); }
+  g.traverse(m=>{ if(m.isMesh){ m.castShadow=true; } });
+  return g;
+}
+function mkSilence(){
+  const P=mkPerson({
+    height:2.06, headless:true, skin:0x8f9498, skinRough:0.6,
+    jacket:0x0e0f13, coatLen:0.16, shirt:0x14161c, tie:0x070709,
+    top:0x0e0f13, trousers:0x0e0f13, shoes:0x060608,
+    gait:'stiff', swingMul:0.5, build:0.88,
+  });
+  const head=mkSilenceHead(); head.position.y=0.02; P.head.add(head);
+  // long spindly hands already on P; make them pale (recolor handled by skin)
+  P.silHead=head;
+  P.eyeL=head.userData.eyeL; P.eyeR=head.userData.eyeR;
+  return P;
+}
+function addSilence(Z, x, z, opts={}){
+  const P=mkSilence();
+  P.root.position.set(x, Z.groundHeight(x,z), z);
+  P.root.rotation.y=opts.yaw??rand(TAU);
+  Z.scene.add(P.root);
+  const E={
+    kind:'silence', root:P.root, P, alive:true, alerted:false, immuneSonic:false,
+    sonicCharge:0, sonicNeed:1.6, home:{x,z,yaw:P.root.rotation.y},
+    zapT:rand(1.5,3.5), armT:0, phase:rand(20), label:'The Silence',
+    observed(){
+      if(G.state!=='play') return false;
+      const pos=P.root.position, cp=camera.position;
+      const d=dist2(pos.x,pos.z,cp.x,cp.z);
+      if(d>55) return false;
+      const to=V3(pos.x-cp.x,(pos.y+1.7)-cp.y,pos.z-cp.z).normalize();
+      const fwd=V3(); camera.getWorldDirection(fwd);
+      const vf=camera.fov*PI/180, hf=2*Math.atan(Math.tan(vf/2)*camera.aspect);
+      if(fwd.angleTo(to) > Math.max(vf,hf)/2*1.02) return false;
+      if(losBlocked(Z,cp.x,cp.z,pos.x,pos.z)) return false;
+      return true;
+    },
+    update(dt,t){
+      if(!this.alive) return;
+      const pos=P.root.position, pp=G.player.root.position;
+      const obs=this.observed();
+      const pd=dist2(pos.x,pos.z,pp.x,pp.z);
+      // eyes glow while observed (it knows you see it)
+      const glow = obs ? 1.6 : 0;
+      P.eyeL.emissiveIntensity=damp(P.eyeL.emissiveIntensity,glow,6,dt);
+      P.eyeR.emissiveIntensity=damp(P.eyeR.emissiveIntensity,glow,6,dt);
+      if(obs){
+        // observed: freeze, turn to face you, slowly raise a hand — but cannot advance
+        if(!this._seen){ this._seen=true; markSilenceSeen(); }
+        P.speed=0;
+        P.root.rotation.y=angDamp(P.root.rotation.y, Math.atan2(pp.x-pos.x,pp.z-pos.z), 3, dt);
+        this.armT=Math.min(this.armT+dt,1);
+        P.shR.rotation.x=damp(P.shR.rotation.x,-1.15*this.armT,6,dt);
+        P.elR.rotation.x=damp(P.elR.rotation.x,0.5*this.armT,6,dt);
+        P.headTarget=pp;
+      } else {
+        this._seen=false;
+        this.armT=Math.max(this.armT-dt,0);
+        P.shR.rotation.x=damp(P.shR.rotation.x,0,4,dt);
+        // glide toward the player in the dark
+        if(pd>1.35 && pd<60){
+          const a=Math.atan2(pp.x-pos.x,pp.z-pos.z);
+          const spd=pd>14?2.9:1.9;
+          P.speed=spd*0.5; P.root.rotation.y=angDamp(P.root.rotation.y,a,4,dt);
+          pos.x+=Math.sin(P.root.rotation.y)*spd*dt; pos.z+=Math.cos(P.root.rotation.y)*spd*dt;
+          // separate from other silence
+          for(const o of Z.enemies) if(o!==this&&o.kind==='silence'&&o.alive){
+            const dd=dist2(pos.x,pos.z,o.root.position.x,o.root.position.z);
+            if(dd<1.3&&dd>0.001){ const aa=Math.atan2(pos.x-o.root.position.x,pos.z-o.root.position.z);
+              pos.x+=Math.sin(aa)*(1.3-dd)*0.5; pos.z+=Math.cos(aa)*(1.3-dd)*0.5; } }
+          resolveStatic(Z,pos,0.4); pos.y=Z.groundHeight(pos.x,pos.z);
+        } else P.speed=0;
+        // zap when close & unseen
+        if(pd<1.9 && G.state==='play'){
+          this.zapT-=dt;
+          if(this.zapT<=0){ this.zapT=rand(1.4,2.4);
+            arcZap(Z.scene, P.handR.getWorldPosition(V3()), V3(pp.x,pp.y+1.2,pp.z), 0x9fd0ff);
+            A.cyberZap(); damagePlayer(12, pos, true);
+            forgetFlash();      // you don't even remember being hit
+          }
+        }
+      }
+      P.headTarget = obs?pp:null;
+      P.update(dt,t);
+      this.sonicCharge=Math.max(0,this.sonicCharge-dt*0.6);
+    },
+    sonicHit(dt){
+      if(!this.alive) return false;
+      if(!this.observed()) return false;        // can only banish one you're looking at
+      this.sonicCharge+=dt;
+      if(this.sonicCharge>=this.sonicNeed){ this.banish(); return true; }
+      return false;
+    },
+    banish(){
+      this.alive=false;
+      const hp=P.head.getWorldPosition(V3());
+      sparkBurst(Z.scene, hp, 0x9fd0ff, 34, 5, 0.9);
+      A.cyberZap(); A.sweep(400,70,0.7,0.2,'sawtooth');
+      // dissolve upward
+      let k=0; const mats=[]; P.root.traverse(m=>{ if(m.isMesh){
+        m.material = Array.isArray(m.material) ? m.material.map(x=>x.clone()) : m.material.clone();
+        (Array.isArray(m.material)?m.material:[m.material]).forEach(x=>{ x.transparent=true; mats.push(x); });
+      } });
+      addTrans(dt=>{ k+=dt*0.9; P.root.position.y += dt*0.4; for(const mm of mats) mm.opacity=1-k;
+        if(k>=1){ P.root.visible=false; return false; } return true; });
+      floatText(Z.scene, 'FORGOTTEN', hp.clone().add(V3(0,0.4,0)), '#bfe6ff', 1.6);
+      if(this.onBanished) this.onBanished();
+    },
+    disable(){ this.banish(); }
+  };
+  Z.enemies.push(E); return E;
+}
+/* Silence HUD helpers (defined in UI, guarded here) */
+function markSilenceSeen(){ if(typeof onSilenceSeen==='function') onSilenceSeen(); }
+function forgetFlash(){ if(typeof onForget==='function') onForget(); }
+
 function updateEnemies(Z, dt, t){ for(const e of Z.enemies) e.update(dt,t); updateProjectiles(Z,dt); }
 
 /* ============================== 05 PROPS & ARCHITECTURE ============================== */
@@ -2297,7 +2458,7 @@ function addFragment(Z, x, z, flagName, label='Time Fragment'){
     action:()=>{
       F.root.visible=false; G.flags[flagName]=true; A.chime();
       recountFragments();
-      toastMsg('TIME FRAGMENT RECOVERED', `${G.fragments} of 4`);
+      toastMsg('TIME FRAGMENT RECOVERED', `${G.fragments} of ${FRAG_TOTAL}`);
       onQuestEvent('fragment', flagName);
       saveGame();
     }});
@@ -2486,7 +2647,7 @@ function buildTardisInterior(){
   for(let i=0;i<10;i++){ const a=i/10*TAU; const p2=cyl(0.03,0.03,1.05,railM,6); p2.position.set(Math.sin(a)*4.3,0.52,Math.cos(a)*4.3); S.add(p2); }
   circ(Z,0,0,0.1); // (console circle already)
   for(const a of [0.5,2.6,4.2]){ const sc=new THREE.PointLight(0xffc46a, 13, 11, 2); sc.position.set(Math.sin(a)*7.6, 3.4, Math.cos(a)*7.6); S.add(sc); }
-  addInteract(Z,{x:0,z:1.6,r:1.5, label:()=>G.fragments>=4&&!G.flags.ended?'Set course — <b>seal the time rupture</b>':'Use the <b>TARDIS console</b>', action:()=>openTravel()});
+  addInteract(Z,{x:0,z:1.6,r:1.5, label:()=>G.fragments>=FRAG_TOTAL&&!G.flags.ended?'Set course — <b>seal the time rupture</b>':'Use the <b>TARDIS console</b>', action:()=>openTravel()});
   // idle animation
   Z.updaters.push((dt,t)=>{
     const spd=G.travelAnim?7:1;
@@ -2771,6 +2932,110 @@ function buildGraveyard(){
   return Z;
 }
 
+/* ============================================================ THE SILENCE — 1969 */
+function buildSilence(){
+  const Z=newZone('silence','YAXLEY FACILITY','Florida — 22 April 1969', {bound:16.5, spawn:{x:0,z:9,yaw:PI}, tardis:{x:4,z:10,yaw:-0.5}, surface:'metal',
+    ambience:{drone:{notes:[38,44,57],v:0.02,f:180,type:'sawtooth'}, noise:{f:640,v:0.045,type:'bandpass',q:0.5}}});
+  const S=Z.scene;
+  S.background=new THREE.Color(0x05070c);
+  S.fog=new THREE.FogExp2(0x0a0e16, 0.019);
+  S.add(new THREE.HemisphereLight(0x3a4258, 0x0c0e14, 0.6));
+  // moonlight raking through the high windows
+  const moon=new THREE.DirectionalLight(0x9fb4e8, 0.85); moon.position.set(-8,14,-22); moon.castShadow=true;
+  moon.shadow.mapSize.setScalar(2048);
+  Object.assign(moon.shadow.camera,{left:-22,right:22,top:22,bottom:-22,near:2,far:60}); S.add(moon); Z.sun=moon;
+
+  const W=17, D=12, Hh=7;
+  const concrete=TM(0x6a6e74,0.9,0,'paving',7,3,0.8);
+  const wallM=TM(0x53565c,0.94,0,'brick',6,3,0.7);
+  const floorMat=TM(0x44474d,0.55,0.1,'asphalt',10,7,0.6);
+  // floor + ceiling
+  const floor=pl(W*2,D*2, floorMat); floor.rotation.x=-PI/2; S.add(floor);
+  const ceil=box(W*2,0.4,D*2, M(0x1a1c22,0.9,0)); ceil.position.y=Hh; S.add(ceil);
+  // walls
+  for(const [x,z,rot,len] of [[0,-D,0,W*2],[0,D,0,W*2],[-W,0,PI/2,D*2],[W,0,PI/2,D*2]]){
+    const wall=box(len,Hh,0.5, wallM); wall.position.set(x,Hh/2,z); wall.rotation.y=rot; S.add(wall); markStatic(wall);
+    if(rot===0) aabb(Z,x-len/2,z-0.35,x+len/2,z+0.35); else aabb(Z,x-0.35,z-len/2,x+0.35,z+len/2);
+  }
+  // high windows on back wall (z=-12) with moonlight shafts + rain behind
+  for(let i=0;i<5;i++){ const wx=-12+i*6;
+    const glass=new THREE.Mesh(new THREE.PlaneGeometry(3.2,2.2),
+      new THREE.MeshStandardMaterial({color:0x1a2436, emissive:0x35496e, emissiveIntensity:0.6, roughness:0.2, metalness:0.3}));
+    glass.position.set(wx,5.1,-D+0.28); S.add(glass);
+    for(let k=0;k<3;k++) S.add(at(box(0.06,2.2,0.1,M(0x2a2d33,0.7,0.2)), wx-1.1+k*1.1,5.1,-D+0.34));
+    S.add(at(box(3.4,0.1,0.12,M(0x2a2d33,0.7,0.2)), wx,4.0,-D+0.34), at(box(3.4,0.1,0.12,M(0x2a2d33,0.7,0.2)), wx,6.2,-D+0.34));
+    // shaft of moonlight — thin, angled, subtle
+    const shaft=mkLightCone(0x9fb4e8, 0.7, 2.0, 6.2, 0.03); shaft.position.set(wx+1.6,2.9,-D+3.6); shaft.rotation.set(0.30,0,0.16); S.add(shaft);
+  }
+  // pillars
+  for(const px of [-10,0,10]) for(const pz of [-5,5]){
+    const pil=box(1.0,Hh,1.0, concrete); pil.position.set(px,Hh/2,pz); S.add(pil); markStatic(pil); circ(Z,px,pz,0.7);
+    S.add(at(box(1.3,0.3,1.3,concrete),px,0.15,pz), at(box(1.3,0.3,1.3,concrete),px,Hh-0.15,pz));
+  }
+  // hanging fluorescent tubes (some flicker) + point lights
+  const tubes=[];
+  for(const [lx,lz] of [[-8,-4],[6,-6],[-4,3],[9,4],[0,0],[-11,6],[11,-2]]){
+    const fix=grp();
+    const tubeM=new THREE.MeshStandardMaterial({color:0xeaf2ff, emissive:0xcfe0ff, emissiveIntensity:1.6, roughness:0.4});
+    const tube=new THREE.Mesh(new THREE.BoxGeometry(1.8,0.1,0.28), tubeM);
+    fix.add(tube, at(box(2.0,0.12,0.4,M(0x2a2d33,0.6,0.4)),0,0.09,0));
+    for(const c of [-0.9,0.9]) fix.add(at(cyl(0.015,0.015,0.5,M(0x3a3d43,0.6,0.3),6),0,0.3,0).translateX(c));
+    fix.position.set(lx,Hh-0.55,lz); S.add(fix);
+    const pt=new THREE.PointLight(0xbcd0ff, 24, 13, 2.0); pt.position.set(lx,Hh-0.9,lz); S.add(pt);
+    const flick=Math.random()<0.45;
+    tubes.push({tubeM,pt,flick,base:24,phase:rand(20),x:lx});
+  }
+  Z.updaters.push((dt,t)=>{ for(const T of tubes){
+    let v=1; if(T.flick){ const n=Math.sin(t*37+T.phase)*Math.sin(t*13.3+T.x); v = n>-0.75 ? 1 : (Math.random()<0.5?0.15:0.9); }
+    T.pt.intensity=T.base*v; T.tubeM.emissiveIntensity=1.6*v; } });
+
+  // crates / pallets / shelving
+  const woodT=TM(0x6e5533,0.9,0,'paving',2,2,0.5);
+  const crate=(x,y,z,s)=>{ const c=box(s,s,s, woodT); c.position.set(x,y+s/2,z); c.castShadow=c.receiveShadow=true; S.add(c);
+    for(const e of [[-1,0],[1,0],[0,-1],[0,1]]) S.add(at(box(s*0.06,s,s*0.06,M(0x4a3a22,0.85,0)), x+e[0]*s/2, y+s/2, z+e[1]*s/2)); return c; };
+  for(const [x,z] of [[-13,-8],[-13,-8],[13,7],[-6,-9],[7,-9],[12,-8]]){ crate(x,0,z,1.1); if(Math.random()<0.6) crate(x+rand(-0.3,0.3),1.1,z,0.8); circ(Z,x,z,0.8); }
+  crate(-14,0,4,1.2); crate(-14,1.2,4,1.0); circ(Z,-14,4,0.9);
+  // shelving along +x wall
+  for(let i=0;i<3;i++){ const sh=grp();
+    for(let lvl=0;lvl<4;lvl++) sh.add(at(box(0.7,0.08,4.5,M(0x3a3d43,0.6,0.4)),0,0.4+lvl*1.5,0));
+    for(const zz of [-2.2,2.2]) for(const xx of [-0.3,0.3]) sh.add(at(box(0.1,5.8,0.1,M(0x2a2d33,0.6,0.4)),xx,2.9,zz));
+    sh.position.set(15.5,0,-6+i*6); S.add(sh); markStatic(sh); aabb(Z,15.0,-8.2+i*6,16.0,-3.8+i*6);
+  }
+  // floor puddles (wet sheen, not a black mirror of the dark ceiling)
+  const puddleM=new THREE.MeshStandardMaterial({color:0x545c68, roughness:0.22, metalness:0.65, envMapIntensity:1.4});
+  for(let i=0;i<10;i++){ const p=new THREE.Mesh(new THREE.CircleGeometry(rand(0.6,1.7),20), puddleM);
+    p.rotation.x=-PI/2; p.position.set(rand(-15,15),0.01,rand(-11,11)); p.scale.x=rand(1,1.8); S.add(p); }
+
+  // control console (fragment appears here after the recording)
+  const console2=grp();
+  console2.add(at(box(3.4,1.1,1.1,M(0x2a2d33,0.6,0.4)),0,0.55,0));
+  const panel=box(3.2,0.1,0.9,M(0x1a1c22,0.5,0.5)); panel.position.set(0,1.12,0); panel.rotation.x=-0.4; console2.add(panel);
+  const scrM=new THREE.MeshStandardMaterial({color:0x0a1a1c, emissive:0x2affa8, emissiveIntensity:0.7, roughness:0.3});
+  for(const sx of [-1,0,1]){ const scr=new THREE.Mesh(new THREE.PlaneGeometry(0.9,0.6), scrM); scr.position.set(sx*1.05,1.9,-0.2); scr.rotation.x=-0.2; console2.add(scr);
+    console2.add(at(box(1.0,0.7,0.08,M(0x1a1c22,0.6,0.4)),sx*1.05,1.9,-0.24)); }
+  const reelM=new THREE.MeshStandardMaterial({color:0xff5a4a,emissive:0xff3a2a,emissiveIntensity:0});
+  const reel=new THREE.Mesh(new THREE.SphereGeometry(0.06,10,8), reelM); reel.position.set(0,1.3,0.3); console2.add(reel);
+  console2.position.set(0,0,-10.5); S.add(console2); markStatic(console2); aabb(Z,-1.7,-11.2,1.7,-9.8);
+  Z.consoleReel=reelM;
+  Z.updaters.push((dt,t)=>{ if(G.flags.silenceDone) reelM.emissiveIntensity=1.4+Math.sin(t*4)*0.8; });
+
+  placeTardis(Z);
+  Z.fragSil=addFragment(Z, 0, -9.6, 'fragSilence');
+  Z.fragSil.root.visible=false;               // revealed after the recording plays
+  // the survivor
+  addNPC(Z, mkNPC('modern',{fem:true,hairStyle:'bun',jacket:0x2e3a4a,coatLen:0.16,height:1.66,skin:0xC98E63,hair:0x1d1a16}),
+    'Agent Okoro','okoro', 2.2, 8.0, PI, {wanderR:0, fearless:true});
+  // the Silence lurking between the pillars & shadows
+  const silenceSpots=[[-10,-5],[10,-5],[0,-8],[-6,4],[8,3],[13,-8]];
+  for(const [x,z] of silenceSpots){ const s=addSilence(Z,x,z,{}); s.onBanished=()=>onQuestEvent('silenceBanished'); }
+  // recording interaction
+  addInteract(Z,{x:0,z:-9.4,r:2.4,
+    label:()=>'Play the <b>reel-to-reel recording</b>',
+    cond:()=>G.flags.silenceQuest && G.flags.silenceDone && !G.flags.silencePlayed,
+    action:()=>playSilenceRecording()});
+  return Z;
+}
+
 /* ============================== 07 DIALOGUE, QUESTS & BANTER ============================== */
 
 function banter(key, text, delay=0, who='riley'){
@@ -2790,6 +3055,16 @@ function startAutonQuest(){
 function startDalekQuest(){ G.flags.dalekQuest=true; G.flags.daleksDown=G.flags.daleksDown||0; }
 function startMoonQuest(){ G.flags.moonQuest=true; G.flags.regsFixed=0; G.zones.moon.waveT=8; }
 function startGraveQuest(){ G.flags.graveQuest=true; banter('b_grave','Statues that move when you\'re not looking. Right. I\'m never blinking again. Ever.',1.2); }
+function startSilenceQuest(){ if(G.flags.silenceQuest) return; G.flags.silenceQuest=true; G.flags.silBanished=0;
+  banter('b_silstart','Doctor— there\'s something in here. I keep— I keep losing my train of— what was I saying?',1.4); }
+function playSilenceRecording(){
+  G.flags.silencePlayed=true;
+  A.blip(300,0.1,0.1,'square');
+  say('Recording','"You should kill us all on sight."', 4.5, 'gold');
+  try{ if(G.voice){ const u=new SpeechSynthesisUtterance('You should kill us all on sight.'); u.rate=0.9; u.pitch=0.4; u.volume=0.9; speechSynthesis.cancel(); speechSynthesis.speak(u);} }catch(e){}
+  setTimeout(()=>{ G.zones.silence.fragSil.root.visible=true; A.chime();
+    banter('b_silfrag','There— on the console. The recording shook something loose. A fragment. Grab it and let\'s NEVER come back.',1.5); }, 3200);
+}
 
 function startRepair(reg){
   G.channel={type:'repair', reg, t:0, need:2.4, x:reg.x, z:reg.z,
@@ -2811,8 +3086,10 @@ function startDoorUnseal(){
     }};
 }
 
+const FRAG_KEYS=['fragLondon','fragSkaro','fragMoon','fragGrave','fragSilence'];
+const FRAG_TOTAL=FRAG_KEYS.length;
 function recountFragments(){
-  G.fragments=['fragLondon','fragSkaro','fragMoon','fragGrave'].reduce((n,f)=>n+(G.flags[f]?1:0),0);
+  G.fragments=FRAG_KEYS.reduce((n,f)=>n+(G.flags[f]?1:0),0);
 }
 function onQuestEvent(type, data){
   const F=G.flags;
@@ -2829,6 +3106,10 @@ function onQuestEvent(type, data){
       banter('b_gate','Patrol\'s down. That big black one by the gate hasn\'t moved... I hate it already.',1); }}
   if(type==='secDown'){ F.secDown=true; banter('b_sec','THAT one. That one was the scary one. Pedestal\'s all yours, Doctor.',1); }
   if(type==='cyberDown'){ F.cybersDown=(F.cybersDown||0)+1; }
+  if(type==='silenceBanished'){ F.silBanished=(F.silBanished||0)+1;
+    if(F.silBanished===1) banter('b_sil1','It just— dissolved. And now I can barely remember it was ever there. This place is WRONG.');
+    if(F.silBanished>=5 && !F.silenceDone){ F.silenceDone=true;
+      banter('b_sildone','That\'s the last one I can find. Okoro\'s reel-to-reel by the console — she said it holds a warning. Play it.',1.4); } }
   if(type==='regFixed'){
     if(F.regsFixed>=3 && !F.moonDone){ F.moonDone=true;
       banter('b_moondone','Gravity\'s holding! Okafor says the pod they crashed in is still out in the big crater.',1.2); }
@@ -2837,9 +3118,10 @@ function onQuestEvent(type, data){
   if(type==='fragment'){
     recountFragments();
     if(G.fragments===1) banter('b_frag1','So that\'s a piece of the time rupture? It\'s beautiful. In a "probably deadly" way.',1.5);
-    if(G.fragments===2) banter('b_frag2','Two of four. Halfway to saving the universe before tea.',1.5);
-    if(G.fragments===3) banter('b_frag3','Three! One more, Doctor. I can feel the TARDIS getting impatient from here.',1.5);
-    if(G.fragments>=4){ A.bell(); banter('b_frag4','That\'s ALL of them! The console — the rupture — let\'s go home the long way round!',1.8); }
+    if(G.fragments===2) banter('b_frag2','Two of five. Saving the universe, one shard at a time.',1.5);
+    if(G.fragments===3) banter('b_frag3','Three! Getting there, Doctor. I can feel the TARDIS getting impatient from here.',1.5);
+    if(G.fragments===4) banter('b_frag4b','Four down, one to go. So close I can taste the vortex. Or that\'s the chips again.',1.5);
+    if(G.fragments>=FRAG_TOTAL){ A.bell(); banter('b_frag5','That\'s ALL of them! The console — the rupture — let\'s go home the long way round!',1.8); }
     saveGame();
   }
 }
@@ -2847,7 +3129,7 @@ function onQuestEvent(type, data){
 /* ---------- objectives ---------- */
 function currentObjective(){
   const F=G.flags, id=G.zone?G.zone.id:'';
-  if(G.fragments>=4 && !F.ended) return id==='tardis' ? 'Pull the lever — seal the time rupture' : 'Return to the TARDIS console';
+  if(G.fragments>=FRAG_TOTAL && !F.ended) return id==='tardis' ? 'Pull the lever — seal the time rupture' : 'Return to the TARDIS console';
   switch(id){
     case 'london':
       if(!F.metHarlan&&!F.autonsActive) return 'Explore the street — talk to the locals';
@@ -2873,6 +3155,13 @@ function currentObjective(){
       if(F.mausoleumOpen&&!F.fragGrave) return 'Take the fragment from the crypt — keep watching the angels';
       if(F.fragGrave&&!F.toldEllie) return 'Return to Ellie — walking backwards is allowed';
       return 'The angels are only statues. Probably.';
+    case 'silence':
+      if(!F.metOkoro) return 'Someone is muttering in the dark — find them';
+      if(F.silenceQuest&&(F.silBanished||0)<5) return `Banish The Silence — ${F.silBanished||0} / 5 · LOOK at one, then hold the sonic`;
+      if(F.silenceDone&&!F.silencePlayed) return 'Play the reel-to-reel recording by the console';
+      if(F.silencePlayed&&!F.fragSilence) return 'Take the fragment from the console';
+      if(!F.silenceQuest) return 'Agent Okoro is trying to tell you something';
+      return 'The Silence are gone. You think.';
   }
   return 'Explore';
 }
@@ -2957,7 +3246,8 @@ alf:{ start:()=>'n0',
 }},
 
 riley:{ start:()=>{ const id=G.zone.id;
-    if(G.fragments>=4) return 'final';
+    if(G.fragments>=FRAG_TOTAL) return 'final';
+    if(id==='silence') return 'silence';
     if(id==='grave') return 'grave';
     if(id==='skaro') return 'skaro';
     if(id==='moon') return 'moon';
@@ -2984,7 +3274,11 @@ riley:{ start:()=>{ const id=G.zone.id;
     o:[{t:'Because someone here needs help. That\'s always why.', next:'g2'},{t:'Blink with one eye at a time. Old trick.', next:'g3'}]},
   g2:{t:'"Someone needs help." Yeah. That\'s why I got in the box. Okay. Watching the statues. Both eyes OPEN.'},
   g3:{t:'One eye at a— that actually works?! You\'re making that up. You\'re NOT making that up?!'},
-  final:{t:'Four fragments, one console, and a universe that gets to keep existing because a madman with a box said "no". Come on, Doctor. Lever time. Take us home the scenic way.'},
+  silence:{t:'I hate it here. I keep turning round and there\'s a— a— sorry, there\'s a WHAT? See, that\'s the problem, I lose the sentence halfway th— Doctor, are we alone in here? We\'re not, are we.',
+    o:[{t:'No. Keep your eyes moving. Trust the tally, not your memory.', next:'si2'},{t:'Stay in the light. Look at everything twice.', next:'si3'}]},
+  si2:{t:'"Trust the tally not your memory." That\'s the worst fortune cookie I\'ve ever— okay. Eyes moving. Counting. God, I hate this place, and I\'ll have forgotten why in a minute.'},
+  si3:{t:'Look at everything twice. Right. Because once isn\'t creepy enough. ...Behind that pillar. LOOK at the pillar, Doctor. Don\'t ask me why, I already can\'t remember, just LOOK.'},
+  final:{t:'Five fragments, one console, and a universe that gets to keep existing because a madman with a box said "no". Come on, Doctor. Lever time. Take us home the scenic way.'},
 }},
 
 veyra:{ start:()=> G.flags.secDown?'post': (G.flags.daleksDown||0)>=5?'gate': G.flags.dalekQuest?'mid': 'n0',
@@ -3057,6 +3351,26 @@ ellie:{ start:()=> G.flags.toldEllie?'end2': G.flags.fragGrave?'end': G.flags.gr
   end3:{t:'Eighty-one. June. An apple tree. I\'m going to go home, and sleep, and then I\'m going to find June\'s family and ask for every photograph they\'ve got. Thank you. Whatever you are — thank you for making the world make sense sideways.'},
   end2:{t:'I picked an apple from Sam\'s tree on the way out. It\'s the best apple I\'ve ever had, and I cried the whole time. Take care of yourself, Doctor. Watch the statues.'},
 }},
+
+okoro:{ start:()=> G.flags.fragSilence?'end': G.flags.silencePlayed?'played': G.flags.silenceDone?'done': G.flags.silenceQuest?'mid': 'n0',
+ nodes:{
+  n0:{t:'Don\'t— don\'t look away from me. If you look away you\'ll forget I\'m— Agent Okoro. Yaxley Facility. I\'ve been here... I don\'t know how long. There are marks on my arm and I don\'t remember making them.', do:()=>{G.flags.metOkoro=true;},
+    o:[{t:'Marks? Show me your arm.', next:'n1'},{t:'What is this place, Agent?', next:'n2'}]},
+  n1:{t:'Tally marks. Dozens. One every time I— every time I SEE one. And the moment I look away, it\'s gone from my head, so I mark my skin to remember it happened. I\'m a filing cabinet for things I can\'t keep.',
+    r:'Doctor... I\'ve got a tally on the HUD now. Every time I look at one of them it ticks up. What ARE they?', next:'n3'},
+  n2:{t:'Government listening post. Or it was, in \'69. Then THEY moved in — tall, grey, in suits. You only remember them while you\'re staring right at them. Turn around and it\'s like they were never born.', next:'n3'},
+  n3:{t:'They\'ve been here so long nobody remembers building the place around them. That\'s their trick — they don\'t hide, they just... slip out of memory. But there\'s a recording. I made it, I think. For myself. For anyone.',
+    o:[{t:'How do I fight something I can\'t remember?', next:'n4'},{t:'What\'s on the recording?', next:'n5'}]},
+  n4:{t:'Your little torch — the blue one. When you\'re LOOKING at one, it can\'t slip away, and your torch scrambles whatever holds it here. Look, then burn it. Don\'t turn your back. Don\'t— sorry, what were we— the torch. Use the torch.',
+    do:()=>startSilenceQuest()},
+  n5:{t:'A warning. Four words. I don\'t remember recording it but it\'s my voice. Deal with them first — LOOK at each one and hold your torch on it till it\'s gone — then play it. It only makes sense once they\'re not in your head.',
+    do:()=>startSilenceQuest()},
+  mid:{t:(()=>`${5-(G.flags.silBanished||0)} of them still in here that I know of. Keep your eyes ON them, Doctor. The moment you doubt one was ever real — that\'s when it has you.`)},
+  done:{t:'It\'s... quieter. My head is quieter. Did you— I think you did something. The reel-to-reel by the console. Play it now. I finally want to hear what I was trying to tell myself.'},
+  played:{t:'"Kill us all on sight." That was the whole message. God. I\'ve been living with these things because I could never remember to be afraid of them long enough to run. Take your shard, Doctor. Take it and go.',
+    r:'Four words. She recorded four words to herself across who-knows-how-many forgettings. That\'s the bravest filing cabinet in the universe.'},
+  end:{t:'I\'m walking out of here in daylight and I am going to write EVERYTHING down. Notebooks. Tattoos if I have to. You gave me back my own head, Doctor. I won\'t waste it.'},
+}},
 };
 
 /* ============================== 08 UI ============================== */
@@ -3104,6 +3418,23 @@ function setPrompt(html){
   else { UI.prompt.classList.add('hidden'); UI.xh.classList.remove('big'); }
 }
 function updateFrags(){ UI.frags.forEach((f,i)=>f.classList.toggle('got', i<G.fragments)); }
+
+/* ---------- The Silence: tally of sightings + forget flash ---------- */
+const _sil={ marks:0, el:document.getElementById('siltally'), m:document.getElementById('siltally-marks'), fvig:document.getElementById('forgetvig') };
+function onSilenceSeen(){
+  _sil.marks++;
+  const g=Math.floor(_sil.marks/5), r=_sil.marks%5;
+  _sil.m.textContent = '卌 '.repeat(g) + '|'.repeat(r);
+  A.blip(1600,0.03,0.04,'sine');
+}
+function onForget(){
+  _sil.fvig.style.transition='none'; _sil.fvig.style.opacity='0.92';
+  setTimeout(()=>{ _sil.fvig.style.transition='opacity 1.4s'; _sil.fvig.style.opacity='0'; },70);
+}
+function updateSilTally(){
+  const show = G.state==='play' && G.zone && G.zone.id==='silence';
+  _sil.el.classList.toggle('hidden', !show);
+}
 
 /* ---------- health gauge ---------- */
 function drawGauge(t){
@@ -3243,9 +3574,11 @@ const DESTS=[
    status:()=>G.flags.fragMoon?2:G.flags.moonQuest?1:0},
   {id:'grave', era:'England · last Tuesday', name:'Wester Drumlins', desc:'An overgrown churchyard. The statues are lonely. Don\'t blink.',
    status:()=>G.flags.fragGrave?2:G.flags.graveQuest?1:0},
+  {id:'silence', era:'Florida · 22 April 1969', name:'Yaxley Facility', desc:'An abandoned listening post. Something you can\'t remember lives in the dark.',
+   status:()=>G.flags.fragSilence?2:G.flags.silenceQuest?1:0},
 ];
 function openTravel(){
-  if(G.fragments>=4&&!G.flags.ended){ startFinale(); return; }
+  if(G.fragments>=FRAG_TOTAL&&!G.flags.ended){ startFinale(); return; }
   G.state='travel';
   UI.travel.classList.remove('hidden');
   UI.dests.innerHTML='';
@@ -3525,6 +3858,7 @@ const ZONE_BANTER={
   skaro:'Doctor... the scanner said "SKARO" and you got QUIET. You never get quiet. Talk to me.',
   moon:'Okay. Breathe normally. There\'s a dome, there are lights on — somebody\'s home. On the MOON.',
   grave:'Oh, cheery. Fog, gravestones, and it\'s nearly dark. If a statue so much as TWITCHES, I\'m back in the box.',
+  silence:'1969, and this place reeks of damp concrete and forgetting. Keep your eyes moving, Doctor. I mean it.',
   tardis:'Bigger. On. The. Inside. I know I keep saying it. It keeps being TRUE.',
 };
 
@@ -3539,7 +3873,7 @@ function switchZone(id, spawnOverride){
   const Z=G.zones[id]; if(!Z) return;
   G.zone=Z;
   renderPass.scene=Z.scene;
-  gtao.scene=Z.scene;
+  applyGrade(Z.id);
   const s=spawnOverride||Z.spawn;
   G.player.root.position.set(s.x, Z.groundHeight(s.x,s.z), s.z);
   G.yaw=s.yaw??0; G.pitch=-0.1; PL.vel.set(0,0,0);
@@ -3595,9 +3929,10 @@ function startFinale(){
     setTimeout(()=>UI.vortex.classList.add('hidden'),500);
     G.travelAnim=false;
     $('ending-text').innerHTML=
-      'Four fragments. One rupture, sealed with a hum and a lever.<br><br>'+
+      'Five fragments. One rupture, sealed with a hum and a lever.<br><br>'+
       'An old shopkeeper sleeps soundly in 1963. A Thal counts silences that never come. '+
-      'A moonbase hangs its helmets up for the night, and somewhere, a woman plants apple seeds from her brother\'s tree.<br><br>'+
+      'A moonbase hangs its helmets up for the night. A woman plants apple seeds from her brother\'s tree, '+
+      'and in a damp Florida warehouse, an agent finally writes it all down.<br><br>'+
       'The universe doesn\'t say thank you. It doesn\'t have to.<br>'+
       '<span style="color:#8fa5c8">Somewhere in the vortex, a blue box sings.</span>';
     $('ending').classList.remove('hidden');
@@ -3654,9 +3989,9 @@ function updateMoonWaves(dt){
 function buildWorld(){
   G.player=mkDoctor();
   G.companion=mkRiley();
-  buildLondon(); buildTardisInterior(); buildSkaro(); buildMoonbase(); buildGraveyard();
+  buildLondon(); buildTardisInterior(); buildSkaro(); buildMoonbase(); buildGraveyard(); buildSilence();
   // image-based lighting per zone (reflections + material depth); brighter zones get more
-  const envInt={london:0.30, tardis:0.45, skaro:0.55, moon:0.55, grave:0.28};
+  const envInt={london:0.30, tardis:0.45, skaro:0.55, moon:0.55, grave:0.28, silence:0.35};
   for(const id in G.zones){ const s=G.zones[id].scene; s.environment=ENV; s.environmentIntensity=envInt[id]??0.35; }
   recountFragments();
 }
@@ -3674,9 +4009,9 @@ function startGame(fromSave){
   if(G.flags.mausoleumOpen){ const Zg=G.zones.grave;
     const i=Zg.aabbs.indexOf(Zg.doorBlock); if(i>=0)Zg.aabbs.splice(i,1); Zg.mausoleum.door.rotation.y=-1.9; }
   if(G.flags.regsFixed){ G.zones.moon.regulators.slice(0,G.flags.regsFixed).forEach(r=>{ r.fixed=true; r.R.lampM.color.set(0x5affc8); r.R.lampM.emissive.set(0x2adf98); }); }
-  ['fragLondon','fragSkaro','fragMoon','fragGrave'].forEach(f=>{
-    if(G.flags[f]){ const zid={fragLondon:'london',fragSkaro:'skaro',fragMoon:'moon',fragGrave:'grave'}[f];
-      G.zones[zid].scene.traverse(o=>{}); } });
+  // Silence: reveal fragment if the recording was already played; banish already-defeated silence
+  if(G.flags.silencePlayed) G.zones.silence.fragSil.root.visible=true;
+  if(G.flags.silenceDone){ let n=0; for(const e of G.zones.silence.enemies){ if(e.kind==='silence'&&n++<5){ e.alive=false; e.root.visible=false; } } }
   applyQuality();
   $('start').classList.add('hidden');
   UI.hud.classList.remove('hidden');
@@ -3712,11 +4047,13 @@ Object.assign(window.DW,{
     c2.getContext('2d').drawImage(canvas,0,0,c2.width,c2.height);
     window.__img=c2.toDataURL('image/jpeg',q); return window.__img.length; },
   god:()=>{G.godmode=true;},
-  give:()=>{['fragLondon','fragSkaro','fragMoon','fragGrave'].forEach(f=>G.flags[f]=true); recountFragments(); updateFrags();},
+  give:()=>{FRAG_KEYS.forEach(f=>G.flags[f]=true); recountFragments(); updateFrags();},
   cam:(x,y,z,yaw=0,pitch=0)=>{ G.camOverride={x,y,z,yaw,pitch}; },
   play:()=>{ G.camOverride=null; },
   freeze:v=>{ G.freezeAI=v!==false; },
   start:()=>startGame(false),
+  bloom:v=>{ bloom.enabled=v!==false; },
+  film:v=>{ film.enabled=v!==false; },
   shot:(name)=>{ const S={          // camera forward = (-sin yaw, -cos yaw)
     london:['london',{x:9,y:2.2,z:2.0,yaw:-1.85,pitch:0.05}],
     tardis:['tardis',{x:4.6,y:2.6,z:4.8,yaw:0.765,pitch:-0.12}],
@@ -3727,6 +4064,8 @@ Object.assign(window.DW,{
     angel:['grave',{x:-14.5,y:1.7,z:-10.5,yaw:-2.36,pitch:0.0}],
     cyber:['moon',{x:-1,y:1.9,z:11,yaw:3.02,pitch:0.0}],
     auton:['london',{x:-33,y:1.7,z:4.5,yaw:PI,pitch:0.0}],
+    silence:['silence',{x:6,y:1.9,z:6,yaw:0.5,pitch:0.02}],
+    silface:['silence',{x:-9,y:1.75,z:-3,yaw:0.0,pitch:0.03}],
   }[name]; if(!S)return;
     switchZone(S[0]); G.camOverride=S[1]; },
 });
@@ -3763,7 +4102,7 @@ function loop(now){
       // health regen after 5s without damage
       if(G.state==='play'&&G.hp<G.maxhp&&t-G.lastHit>5) G.hp=Math.min(G.maxhp,G.hp+dt*7);
       updateInteract();
-      updateBanter(dt); updateToast(dt); updateObjective(); updateFrags();
+      updateBanter(dt); updateToast(dt); updateObjective(); updateFrags(); updateSilTally();
       drawGauge(t); drawMinimap();
     }
     film.uniforms.uTime.value=t%97;

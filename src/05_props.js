@@ -447,7 +447,7 @@ function addFragment(Z, x, z, flagName, label='Time Fragment'){
     action:()=>{
       F.root.visible=false; G.flags[flagName]=true; A.chime();
       recountFragments();
-      toastMsg('TIME FRAGMENT RECOVERED', `${G.fragments} of 4`);
+      toastMsg('TIME FRAGMENT RECOVERED', `${G.fragments} of ${FRAG_TOTAL}`);
       onQuestEvent('fragment', flagName);
       saveGame();
     }});

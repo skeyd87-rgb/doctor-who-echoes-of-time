@@ -173,7 +173,7 @@ function buildTardisInterior(){
   for(let i=0;i<10;i++){ const a=i/10*TAU; const p2=cyl(0.03,0.03,1.05,railM,6); p2.position.set(Math.sin(a)*4.3,0.52,Math.cos(a)*4.3); S.add(p2); }
   circ(Z,0,0,0.1); // (console circle already)
   for(const a of [0.5,2.6,4.2]){ const sc=new THREE.PointLight(0xffc46a, 13, 11, 2); sc.position.set(Math.sin(a)*7.6, 3.4, Math.cos(a)*7.6); S.add(sc); }
-  addInteract(Z,{x:0,z:1.6,r:1.5, label:()=>G.fragments>=4&&!G.flags.ended?'Set course — <b>seal the time rupture</b>':'Use the <b>TARDIS console</b>', action:()=>openTravel()});
+  addInteract(Z,{x:0,z:1.6,r:1.5, label:()=>G.fragments>=FRAG_TOTAL&&!G.flags.ended?'Set course — <b>seal the time rupture</b>':'Use the <b>TARDIS console</b>', action:()=>openTravel()});
   // idle animation
   Z.updaters.push((dt,t)=>{
     const spd=G.travelAnim?7:1;
@@ -455,5 +455,109 @@ function buildGraveyard(){
   // the angels
   const angelSpots=[[-12,-8],[15,-15],[-18,-26],[8,-30],[3,-20]];
   for(const [x,z] of angelSpots) addAngel(Z,x,z,{});
+  return Z;
+}
+
+/* ============================================================ THE SILENCE — 1969 */
+function buildSilence(){
+  const Z=newZone('silence','YAXLEY FACILITY','Florida — 22 April 1969', {bound:16.5, spawn:{x:0,z:9,yaw:PI}, tardis:{x:4,z:10,yaw:-0.5}, surface:'metal',
+    ambience:{drone:{notes:[38,44,57],v:0.02,f:180,type:'sawtooth'}, noise:{f:640,v:0.045,type:'bandpass',q:0.5}}});
+  const S=Z.scene;
+  S.background=new THREE.Color(0x05070c);
+  S.fog=new THREE.FogExp2(0x0a0e16, 0.019);
+  S.add(new THREE.HemisphereLight(0x3a4258, 0x0c0e14, 0.6));
+  // moonlight raking through the high windows
+  const moon=new THREE.DirectionalLight(0x9fb4e8, 0.85); moon.position.set(-8,14,-22); moon.castShadow=true;
+  moon.shadow.mapSize.setScalar(2048);
+  Object.assign(moon.shadow.camera,{left:-22,right:22,top:22,bottom:-22,near:2,far:60}); S.add(moon); Z.sun=moon;
+
+  const W=17, D=12, Hh=7;
+  const concrete=TM(0x6a6e74,0.9,0,'paving',7,3,0.8);
+  const wallM=TM(0x53565c,0.94,0,'brick',6,3,0.7);
+  const floorMat=TM(0x44474d,0.55,0.1,'asphalt',10,7,0.6);
+  // floor + ceiling
+  const floor=pl(W*2,D*2, floorMat); floor.rotation.x=-PI/2; S.add(floor);
+  const ceil=box(W*2,0.4,D*2, M(0x1a1c22,0.9,0)); ceil.position.y=Hh; S.add(ceil);
+  // walls
+  for(const [x,z,rot,len] of [[0,-D,0,W*2],[0,D,0,W*2],[-W,0,PI/2,D*2],[W,0,PI/2,D*2]]){
+    const wall=box(len,Hh,0.5, wallM); wall.position.set(x,Hh/2,z); wall.rotation.y=rot; S.add(wall); markStatic(wall);
+    if(rot===0) aabb(Z,x-len/2,z-0.35,x+len/2,z+0.35); else aabb(Z,x-0.35,z-len/2,x+0.35,z+len/2);
+  }
+  // high windows on back wall (z=-12) with moonlight shafts + rain behind
+  for(let i=0;i<5;i++){ const wx=-12+i*6;
+    const glass=new THREE.Mesh(new THREE.PlaneGeometry(3.2,2.2),
+      new THREE.MeshStandardMaterial({color:0x1a2436, emissive:0x35496e, emissiveIntensity:0.6, roughness:0.2, metalness:0.3}));
+    glass.position.set(wx,5.1,-D+0.28); S.add(glass);
+    for(let k=0;k<3;k++) S.add(at(box(0.06,2.2,0.1,M(0x2a2d33,0.7,0.2)), wx-1.1+k*1.1,5.1,-D+0.34));
+    S.add(at(box(3.4,0.1,0.12,M(0x2a2d33,0.7,0.2)), wx,4.0,-D+0.34), at(box(3.4,0.1,0.12,M(0x2a2d33,0.7,0.2)), wx,6.2,-D+0.34));
+    // shaft of moonlight — thin, angled, subtle
+    const shaft=mkLightCone(0x9fb4e8, 0.7, 2.0, 6.2, 0.03); shaft.position.set(wx+1.6,2.9,-D+3.6); shaft.rotation.set(0.30,0,0.16); S.add(shaft);
+  }
+  // pillars
+  for(const px of [-10,0,10]) for(const pz of [-5,5]){
+    const pil=box(1.0,Hh,1.0, concrete); pil.position.set(px,Hh/2,pz); S.add(pil); markStatic(pil); circ(Z,px,pz,0.7);
+    S.add(at(box(1.3,0.3,1.3,concrete),px,0.15,pz), at(box(1.3,0.3,1.3,concrete),px,Hh-0.15,pz));
+  }
+  // hanging fluorescent tubes (some flicker) + point lights
+  const tubes=[];
+  for(const [lx,lz] of [[-8,-4],[6,-6],[-4,3],[9,4],[0,0],[-11,6],[11,-2]]){
+    const fix=grp();
+    const tubeM=new THREE.MeshStandardMaterial({color:0xeaf2ff, emissive:0xcfe0ff, emissiveIntensity:1.6, roughness:0.4});
+    const tube=new THREE.Mesh(new THREE.BoxGeometry(1.8,0.1,0.28), tubeM);
+    fix.add(tube, at(box(2.0,0.12,0.4,M(0x2a2d33,0.6,0.4)),0,0.09,0));
+    for(const c of [-0.9,0.9]) fix.add(at(cyl(0.015,0.015,0.5,M(0x3a3d43,0.6,0.3),6),0,0.3,0).translateX(c));
+    fix.position.set(lx,Hh-0.55,lz); S.add(fix);
+    const pt=new THREE.PointLight(0xbcd0ff, 24, 13, 2.0); pt.position.set(lx,Hh-0.9,lz); S.add(pt);
+    const flick=Math.random()<0.45;
+    tubes.push({tubeM,pt,flick,base:24,phase:rand(20),x:lx});
+  }
+  Z.updaters.push((dt,t)=>{ for(const T of tubes){
+    let v=1; if(T.flick){ const n=Math.sin(t*37+T.phase)*Math.sin(t*13.3+T.x); v = n>-0.75 ? 1 : (Math.random()<0.5?0.15:0.9); }
+    T.pt.intensity=T.base*v; T.tubeM.emissiveIntensity=1.6*v; } });
+
+  // crates / pallets / shelving
+  const woodT=TM(0x6e5533,0.9,0,'paving',2,2,0.5);
+  const crate=(x,y,z,s)=>{ const c=box(s,s,s, woodT); c.position.set(x,y+s/2,z); c.castShadow=c.receiveShadow=true; S.add(c);
+    for(const e of [[-1,0],[1,0],[0,-1],[0,1]]) S.add(at(box(s*0.06,s,s*0.06,M(0x4a3a22,0.85,0)), x+e[0]*s/2, y+s/2, z+e[1]*s/2)); return c; };
+  for(const [x,z] of [[-13,-8],[-13,-8],[13,7],[-6,-9],[7,-9],[12,-8]]){ crate(x,0,z,1.1); if(Math.random()<0.6) crate(x+rand(-0.3,0.3),1.1,z,0.8); circ(Z,x,z,0.8); }
+  crate(-14,0,4,1.2); crate(-14,1.2,4,1.0); circ(Z,-14,4,0.9);
+  // shelving along +x wall
+  for(let i=0;i<3;i++){ const sh=grp();
+    for(let lvl=0;lvl<4;lvl++) sh.add(at(box(0.7,0.08,4.5,M(0x3a3d43,0.6,0.4)),0,0.4+lvl*1.5,0));
+    for(const zz of [-2.2,2.2]) for(const xx of [-0.3,0.3]) sh.add(at(box(0.1,5.8,0.1,M(0x2a2d33,0.6,0.4)),xx,2.9,zz));
+    sh.position.set(15.5,0,-6+i*6); S.add(sh); markStatic(sh); aabb(Z,15.0,-8.2+i*6,16.0,-3.8+i*6);
+  }
+  // floor puddles (wet sheen, not a black mirror of the dark ceiling)
+  const puddleM=new THREE.MeshStandardMaterial({color:0x545c68, roughness:0.22, metalness:0.65, envMapIntensity:1.4});
+  for(let i=0;i<10;i++){ const p=new THREE.Mesh(new THREE.CircleGeometry(rand(0.6,1.7),20), puddleM);
+    p.rotation.x=-PI/2; p.position.set(rand(-15,15),0.01,rand(-11,11)); p.scale.x=rand(1,1.8); S.add(p); }
+
+  // control console (fragment appears here after the recording)
+  const console2=grp();
+  console2.add(at(box(3.4,1.1,1.1,M(0x2a2d33,0.6,0.4)),0,0.55,0));
+  const panel=box(3.2,0.1,0.9,M(0x1a1c22,0.5,0.5)); panel.position.set(0,1.12,0); panel.rotation.x=-0.4; console2.add(panel);
+  const scrM=new THREE.MeshStandardMaterial({color:0x0a1a1c, emissive:0x2affa8, emissiveIntensity:0.7, roughness:0.3});
+  for(const sx of [-1,0,1]){ const scr=new THREE.Mesh(new THREE.PlaneGeometry(0.9,0.6), scrM); scr.position.set(sx*1.05,1.9,-0.2); scr.rotation.x=-0.2; console2.add(scr);
+    console2.add(at(box(1.0,0.7,0.08,M(0x1a1c22,0.6,0.4)),sx*1.05,1.9,-0.24)); }
+  const reelM=new THREE.MeshStandardMaterial({color:0xff5a4a,emissive:0xff3a2a,emissiveIntensity:0});
+  const reel=new THREE.Mesh(new THREE.SphereGeometry(0.06,10,8), reelM); reel.position.set(0,1.3,0.3); console2.add(reel);
+  console2.position.set(0,0,-10.5); S.add(console2); markStatic(console2); aabb(Z,-1.7,-11.2,1.7,-9.8);
+  Z.consoleReel=reelM;
+  Z.updaters.push((dt,t)=>{ if(G.flags.silenceDone) reelM.emissiveIntensity=1.4+Math.sin(t*4)*0.8; });
+
+  placeTardis(Z);
+  Z.fragSil=addFragment(Z, 0, -9.6, 'fragSilence');
+  Z.fragSil.root.visible=false;               // revealed after the recording plays
+  // the survivor
+  addNPC(Z, mkNPC('modern',{fem:true,hairStyle:'bun',jacket:0x2e3a4a,coatLen:0.16,height:1.66,skin:0xC98E63,hair:0x1d1a16}),
+    'Agent Okoro','okoro', 2.2, 8.0, PI, {wanderR:0, fearless:true});
+  // the Silence lurking between the pillars & shadows
+  const silenceSpots=[[-10,-5],[10,-5],[0,-8],[-6,4],[8,3],[13,-8]];
+  for(const [x,z] of silenceSpots){ const s=addSilence(Z,x,z,{}); s.onBanished=()=>onQuestEvent('silenceBanished'); }
+  // recording interaction
+  addInteract(Z,{x:0,z:-9.4,r:2.4,
+    label:()=>'Play the <b>reel-to-reel recording</b>',
+    cond:()=>G.flags.silenceQuest && G.flags.silenceDone && !G.flags.silencePlayed,
+    action:()=>playSilenceRecording()});
   return Z;
 }

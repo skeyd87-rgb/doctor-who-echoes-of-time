@@ -14,6 +14,7 @@ const ZONE_BANTER={
   skaro:'Doctor... the scanner said "SKARO" and you got QUIET. You never get quiet. Talk to me.',
   moon:'Okay. Breathe normally. There\'s a dome, there are lights on — somebody\'s home. On the MOON.',
   grave:'Oh, cheery. Fog, gravestones, and it\'s nearly dark. If a statue so much as TWITCHES, I\'m back in the box.',
+  silence:'1969, and this place reeks of damp concrete and forgetting. Keep your eyes moving, Doctor. I mean it.',
   tardis:'Bigger. On. The. Inside. I know I keep saying it. It keeps being TRUE.',
 };
 
@@ -28,7 +29,7 @@ function switchZone(id, spawnOverride){
   const Z=G.zones[id]; if(!Z) return;
   G.zone=Z;
   renderPass.scene=Z.scene;
-  gtao.scene=Z.scene;
+  applyGrade(Z.id);
   const s=spawnOverride||Z.spawn;
   G.player.root.position.set(s.x, Z.groundHeight(s.x,s.z), s.z);
   G.yaw=s.yaw??0; G.pitch=-0.1; PL.vel.set(0,0,0);
@@ -84,9 +85,10 @@ function startFinale(){
     setTimeout(()=>UI.vortex.classList.add('hidden'),500);
     G.travelAnim=false;
     $('ending-text').innerHTML=
-      'Four fragments. One rupture, sealed with a hum and a lever.<br><br>'+
+      'Five fragments. One rupture, sealed with a hum and a lever.<br><br>'+
       'An old shopkeeper sleeps soundly in 1963. A Thal counts silences that never come. '+
-      'A moonbase hangs its helmets up for the night, and somewhere, a woman plants apple seeds from her brother\'s tree.<br><br>'+
+      'A moonbase hangs its helmets up for the night. A woman plants apple seeds from her brother\'s tree, '+
+      'and in a damp Florida warehouse, an agent finally writes it all down.<br><br>'+
       'The universe doesn\'t say thank you. It doesn\'t have to.<br>'+
       '<span style="color:#8fa5c8">Somewhere in the vortex, a blue box sings.</span>';
     $('ending').classList.remove('hidden');
@@ -143,9 +145,9 @@ function updateMoonWaves(dt){
 function buildWorld(){
   G.player=mkDoctor();
   G.companion=mkRiley();
-  buildLondon(); buildTardisInterior(); buildSkaro(); buildMoonbase(); buildGraveyard();
+  buildLondon(); buildTardisInterior(); buildSkaro(); buildMoonbase(); buildGraveyard(); buildSilence();
   // image-based lighting per zone (reflections + material depth); brighter zones get more
-  const envInt={london:0.30, tardis:0.45, skaro:0.55, moon:0.55, grave:0.28};
+  const envInt={london:0.30, tardis:0.45, skaro:0.55, moon:0.55, grave:0.28, silence:0.35};
   for(const id in G.zones){ const s=G.zones[id].scene; s.environment=ENV; s.environmentIntensity=envInt[id]??0.35; }
   recountFragments();
 }
@@ -163,9 +165,9 @@ function startGame(fromSave){
   if(G.flags.mausoleumOpen){ const Zg=G.zones.grave;
     const i=Zg.aabbs.indexOf(Zg.doorBlock); if(i>=0)Zg.aabbs.splice(i,1); Zg.mausoleum.door.rotation.y=-1.9; }
   if(G.flags.regsFixed){ G.zones.moon.regulators.slice(0,G.flags.regsFixed).forEach(r=>{ r.fixed=true; r.R.lampM.color.set(0x5affc8); r.R.lampM.emissive.set(0x2adf98); }); }
-  ['fragLondon','fragSkaro','fragMoon','fragGrave'].forEach(f=>{
-    if(G.flags[f]){ const zid={fragLondon:'london',fragSkaro:'skaro',fragMoon:'moon',fragGrave:'grave'}[f];
-      G.zones[zid].scene.traverse(o=>{}); } });
+  // Silence: reveal fragment if the recording was already played; banish already-defeated silence
+  if(G.flags.silencePlayed) G.zones.silence.fragSil.root.visible=true;
+  if(G.flags.silenceDone){ let n=0; for(const e of G.zones.silence.enemies){ if(e.kind==='silence'&&n++<5){ e.alive=false; e.root.visible=false; } } }
   applyQuality();
   $('start').classList.add('hidden');
   UI.hud.classList.remove('hidden');
@@ -201,11 +203,13 @@ Object.assign(window.DW,{
     c2.getContext('2d').drawImage(canvas,0,0,c2.width,c2.height);
     window.__img=c2.toDataURL('image/jpeg',q); return window.__img.length; },
   god:()=>{G.godmode=true;},
-  give:()=>{['fragLondon','fragSkaro','fragMoon','fragGrave'].forEach(f=>G.flags[f]=true); recountFragments(); updateFrags();},
+  give:()=>{FRAG_KEYS.forEach(f=>G.flags[f]=true); recountFragments(); updateFrags();},
   cam:(x,y,z,yaw=0,pitch=0)=>{ G.camOverride={x,y,z,yaw,pitch}; },
   play:()=>{ G.camOverride=null; },
   freeze:v=>{ G.freezeAI=v!==false; },
   start:()=>startGame(false),
+  bloom:v=>{ bloom.enabled=v!==false; },
+  film:v=>{ film.enabled=v!==false; },
   shot:(name)=>{ const S={          // camera forward = (-sin yaw, -cos yaw)
     london:['london',{x:9,y:2.2,z:2.0,yaw:-1.85,pitch:0.05}],
     tardis:['tardis',{x:4.6,y:2.6,z:4.8,yaw:0.765,pitch:-0.12}],
@@ -216,6 +220,8 @@ Object.assign(window.DW,{
     angel:['grave',{x:-14.5,y:1.7,z:-10.5,yaw:-2.36,pitch:0.0}],
     cyber:['moon',{x:-1,y:1.9,z:11,yaw:3.02,pitch:0.0}],
     auton:['london',{x:-33,y:1.7,z:4.5,yaw:PI,pitch:0.0}],
+    silence:['silence',{x:6,y:1.9,z:6,yaw:0.5,pitch:0.02}],
+    silface:['silence',{x:-9,y:1.75,z:-3,yaw:0.0,pitch:0.03}],
   }[name]; if(!S)return;
     switchZone(S[0]); G.camOverride=S[1]; },
 });
@@ -252,7 +258,7 @@ function loop(now){
       // health regen after 5s without damage
       if(G.state==='play'&&G.hp<G.maxhp&&t-G.lastHit>5) G.hp=Math.min(G.maxhp,G.hp+dt*7);
       updateInteract();
-      updateBanter(dt); updateToast(dt); updateObjective(); updateFrags();
+      updateBanter(dt); updateToast(dt); updateObjective(); updateFrags(); updateSilTally();
       drawGauge(t); drawMinimap();
     }
     film.uniforms.uTime.value=t%97;

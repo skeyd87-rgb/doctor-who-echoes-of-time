@@ -44,6 +44,23 @@ function setPrompt(html){
 }
 function updateFrags(){ UI.frags.forEach((f,i)=>f.classList.toggle('got', i<G.fragments)); }
 
+/* ---------- The Silence: tally of sightings + forget flash ---------- */
+const _sil={ marks:0, el:document.getElementById('siltally'), m:document.getElementById('siltally-marks'), fvig:document.getElementById('forgetvig') };
+function onSilenceSeen(){
+  _sil.marks++;
+  const g=Math.floor(_sil.marks/5), r=_sil.marks%5;
+  _sil.m.textContent = '卌 '.repeat(g) + '|'.repeat(r);
+  A.blip(1600,0.03,0.04,'sine');
+}
+function onForget(){
+  _sil.fvig.style.transition='none'; _sil.fvig.style.opacity='0.92';
+  setTimeout(()=>{ _sil.fvig.style.transition='opacity 1.4s'; _sil.fvig.style.opacity='0'; },70);
+}
+function updateSilTally(){
+  const show = G.state==='play' && G.zone && G.zone.id==='silence';
+  _sil.el.classList.toggle('hidden', !show);
+}
+
 /* ---------- health gauge ---------- */
 function drawGauge(t){
   const c=UI.gauge, W=208, cx=W/2, cy=W/2, r=86;
@@ -182,9 +199,11 @@ const DESTS=[
    status:()=>G.flags.fragMoon?2:G.flags.moonQuest?1:0},
   {id:'grave', era:'England · last Tuesday', name:'Wester Drumlins', desc:'An overgrown churchyard. The statues are lonely. Don\'t blink.',
    status:()=>G.flags.fragGrave?2:G.flags.graveQuest?1:0},
+  {id:'silence', era:'Florida · 22 April 1969', name:'Yaxley Facility', desc:'An abandoned listening post. Something you can\'t remember lives in the dark.',
+   status:()=>G.flags.fragSilence?2:G.flags.silenceQuest?1:0},
 ];
 function openTravel(){
-  if(G.fragments>=4&&!G.flags.ended){ startFinale(); return; }
+  if(G.fragments>=FRAG_TOTAL&&!G.flags.ended){ startFinale(); return; }
   G.state='travel';
   UI.travel.classList.remove('hidden');
   UI.dests.innerHTML='';

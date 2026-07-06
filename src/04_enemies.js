@@ -535,4 +535,145 @@ function addAuton(Z, x, z, opts={}){
   Z.enemies.push(E); return E;
 }
 
+/* =============================== THE SILENCE =============================== */
+function mkSilenceHead(){
+  const g=new THREE.Group();
+  const flesh=M(0x8f9498,0.62,0);          // pale grey, waxy
+  const dark=M(0x0c0d10,0.9,0);
+  // elongated bulbous cranium
+  const cran=sph(0.12, flesh, 22,16); cran.scale.set(0.92,1.18,1.0); cran.position.y=0.055; g.add(cran);
+  // gaunt sunken cheeks / long jaw
+  const face=rbox(0.15,0.20,0.11,0.05, flesh); face.position.set(0,-0.03,0.02); g.add(face);
+  const jaw=rbox(0.12,0.075,0.10,0.03, flesh); jaw.position.set(0,-0.115,0.018); g.add(jaw);
+  // deep dark eye sockets (the Munch "Scream" look)
+  for(const s of [-1,1]){
+    const socket=sph(0.038, dark, 12,10); socket.scale.set(1,1.25,0.7); socket.position.set(s*0.052,0.02,0.072); g.add(socket);
+    const ridge=rbox(0.06,0.02,0.03,0.008, flesh); ridge.position.set(s*0.05,0.075,0.088); ridge.rotation.z=-s*0.16; g.add(ridge);
+    // faint eye — glows when it becomes aware of you
+    const em=new THREE.MeshStandardMaterial({color:0x2a3540, emissive:0x88b0ff, emissiveIntensity:0, roughness:0.3});
+    const eye=new THREE.Mesh(new THREE.SphereGeometry(0.015,10,8), em); eye.position.set(s*0.052,0.02,0.092); g.add(eye);
+    g.userData['eye'+(s>0?'L':'R')]=em;
+  }
+  // sunken nose slit + lipless mouth
+  g.add(at(rbox(0.03,0.06,0.03,0.008,flesh),0,-0.04,0.10));
+  const mouth=sph(0.045, dark, 12,8); mouth.scale.set(1.05,0.7,0.5); mouth.position.set(0,-0.11,0.075); g.add(mouth);
+  const lipT=rbox(0.07,0.012,0.02,0.005, flesh); lipT.position.set(0,-0.082,0.088); g.add(lipT);
+  // hairless, slightly wrinkled temples
+  for(const s of [-1,1]){ const tmp=rbox(0.02,0.11,0.05,0.01, M(0x7f8488,0.7,0)); tmp.position.set(s*0.10,0.02,0.02); g.add(tmp); }
+  g.traverse(m=>{ if(m.isMesh){ m.castShadow=true; } });
+  return g;
+}
+function mkSilence(){
+  const P=mkPerson({
+    height:2.06, headless:true, skin:0x8f9498, skinRough:0.6,
+    jacket:0x0e0f13, coatLen:0.16, shirt:0x14161c, tie:0x070709,
+    top:0x0e0f13, trousers:0x0e0f13, shoes:0x060608,
+    gait:'stiff', swingMul:0.5, build:0.88,
+  });
+  const head=mkSilenceHead(); head.position.y=0.02; P.head.add(head);
+  // long spindly hands already on P; make them pale (recolor handled by skin)
+  P.silHead=head;
+  P.eyeL=head.userData.eyeL; P.eyeR=head.userData.eyeR;
+  return P;
+}
+function addSilence(Z, x, z, opts={}){
+  const P=mkSilence();
+  P.root.position.set(x, Z.groundHeight(x,z), z);
+  P.root.rotation.y=opts.yaw??rand(TAU);
+  Z.scene.add(P.root);
+  const E={
+    kind:'silence', root:P.root, P, alive:true, alerted:false, immuneSonic:false,
+    sonicCharge:0, sonicNeed:1.6, home:{x,z,yaw:P.root.rotation.y},
+    zapT:rand(1.5,3.5), armT:0, phase:rand(20), label:'The Silence',
+    observed(){
+      if(G.state!=='play') return false;
+      const pos=P.root.position, cp=camera.position;
+      const d=dist2(pos.x,pos.z,cp.x,cp.z);
+      if(d>55) return false;
+      const to=V3(pos.x-cp.x,(pos.y+1.7)-cp.y,pos.z-cp.z).normalize();
+      const fwd=V3(); camera.getWorldDirection(fwd);
+      const vf=camera.fov*PI/180, hf=2*Math.atan(Math.tan(vf/2)*camera.aspect);
+      if(fwd.angleTo(to) > Math.max(vf,hf)/2*1.02) return false;
+      if(losBlocked(Z,cp.x,cp.z,pos.x,pos.z)) return false;
+      return true;
+    },
+    update(dt,t){
+      if(!this.alive) return;
+      const pos=P.root.position, pp=G.player.root.position;
+      const obs=this.observed();
+      const pd=dist2(pos.x,pos.z,pp.x,pp.z);
+      // eyes glow while observed (it knows you see it)
+      const glow = obs ? 1.6 : 0;
+      P.eyeL.emissiveIntensity=damp(P.eyeL.emissiveIntensity,glow,6,dt);
+      P.eyeR.emissiveIntensity=damp(P.eyeR.emissiveIntensity,glow,6,dt);
+      if(obs){
+        // observed: freeze, turn to face you, slowly raise a hand — but cannot advance
+        if(!this._seen){ this._seen=true; markSilenceSeen(); }
+        P.speed=0;
+        P.root.rotation.y=angDamp(P.root.rotation.y, Math.atan2(pp.x-pos.x,pp.z-pos.z), 3, dt);
+        this.armT=Math.min(this.armT+dt,1);
+        P.shR.rotation.x=damp(P.shR.rotation.x,-1.15*this.armT,6,dt);
+        P.elR.rotation.x=damp(P.elR.rotation.x,0.5*this.armT,6,dt);
+        P.headTarget=pp;
+      } else {
+        this._seen=false;
+        this.armT=Math.max(this.armT-dt,0);
+        P.shR.rotation.x=damp(P.shR.rotation.x,0,4,dt);
+        // glide toward the player in the dark
+        if(pd>1.35 && pd<60){
+          const a=Math.atan2(pp.x-pos.x,pp.z-pos.z);
+          const spd=pd>14?2.9:1.9;
+          P.speed=spd*0.5; P.root.rotation.y=angDamp(P.root.rotation.y,a,4,dt);
+          pos.x+=Math.sin(P.root.rotation.y)*spd*dt; pos.z+=Math.cos(P.root.rotation.y)*spd*dt;
+          // separate from other silence
+          for(const o of Z.enemies) if(o!==this&&o.kind==='silence'&&o.alive){
+            const dd=dist2(pos.x,pos.z,o.root.position.x,o.root.position.z);
+            if(dd<1.3&&dd>0.001){ const aa=Math.atan2(pos.x-o.root.position.x,pos.z-o.root.position.z);
+              pos.x+=Math.sin(aa)*(1.3-dd)*0.5; pos.z+=Math.cos(aa)*(1.3-dd)*0.5; } }
+          resolveStatic(Z,pos,0.4); pos.y=Z.groundHeight(pos.x,pos.z);
+        } else P.speed=0;
+        // zap when close & unseen
+        if(pd<1.9 && G.state==='play'){
+          this.zapT-=dt;
+          if(this.zapT<=0){ this.zapT=rand(1.4,2.4);
+            arcZap(Z.scene, P.handR.getWorldPosition(V3()), V3(pp.x,pp.y+1.2,pp.z), 0x9fd0ff);
+            A.cyberZap(); damagePlayer(12, pos, true);
+            forgetFlash();      // you don't even remember being hit
+          }
+        }
+      }
+      P.headTarget = obs?pp:null;
+      P.update(dt,t);
+      this.sonicCharge=Math.max(0,this.sonicCharge-dt*0.6);
+    },
+    sonicHit(dt){
+      if(!this.alive) return false;
+      if(!this.observed()) return false;        // can only banish one you're looking at
+      this.sonicCharge+=dt;
+      if(this.sonicCharge>=this.sonicNeed){ this.banish(); return true; }
+      return false;
+    },
+    banish(){
+      this.alive=false;
+      const hp=P.head.getWorldPosition(V3());
+      sparkBurst(Z.scene, hp, 0x9fd0ff, 34, 5, 0.9);
+      A.cyberZap(); A.sweep(400,70,0.7,0.2,'sawtooth');
+      // dissolve upward
+      let k=0; const mats=[]; P.root.traverse(m=>{ if(m.isMesh){
+        m.material = Array.isArray(m.material) ? m.material.map(x=>x.clone()) : m.material.clone();
+        (Array.isArray(m.material)?m.material:[m.material]).forEach(x=>{ x.transparent=true; mats.push(x); });
+      } });
+      addTrans(dt=>{ k+=dt*0.9; P.root.position.y += dt*0.4; for(const mm of mats) mm.opacity=1-k;
+        if(k>=1){ P.root.visible=false; return false; } return true; });
+      floatText(Z.scene, 'FORGOTTEN', hp.clone().add(V3(0,0.4,0)), '#bfe6ff', 1.6);
+      if(this.onBanished) this.onBanished();
+    },
+    disable(){ this.banish(); }
+  };
+  Z.enemies.push(E); return E;
+}
+/* Silence HUD helpers (defined in UI, guarded here) */
+function markSilenceSeen(){ if(typeof onSilenceSeen==='function') onSilenceSeen(); }
+function forgetFlash(){ if(typeof onForget==='function') onForget(); }
+
 function updateEnemies(Z, dt, t){ for(const e of Z.enemies) e.update(dt,t); updateProjectiles(Z,dt); }

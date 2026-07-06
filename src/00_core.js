@@ -5,7 +5,6 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
-import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 import { MarchingCubes } from 'three/addons/objects/MarchingCubes.js';
@@ -63,31 +62,47 @@ const _sz = renderer.getDrawingBufferSize(new THREE.Vector2());
 const _ct = new THREE.WebGLRenderTarget(_sz.x, _sz.y, {type:THREE.HalfFloatType, samples: G.isTouch?2:4});
 const composer = new EffectComposer(renderer, _ct);
 const renderPass = new RenderPass(new THREE.Scene(), camera);
-const gtao = new GTAOPass(renderPass.scene, camera, innerWidth, innerHeight);
-gtao.enabled = false;
 const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth,innerHeight), 0.5, 0.5, 0.82);
 composer.addPass(renderPass);
-composer.addPass(gtao);
 composer.addPass(bloom);
 composer.addPass(new OutputPass());
 // cinematic finish: vignette + film grain + gentle saturation (runs in display space, after OutputPass)
 const film = new ShaderPass({
-  uniforms:{ tDiffuse:{value:null}, uTime:{value:0} },
+  uniforms:{ tDiffuse:{value:null}, uTime:{value:0},
+    uTint:{value:new THREE.Vector3(1,1,1)}, uContrast:{value:1.1}, uSat:{value:1.08},
+    uLift:{value:new THREE.Vector3(0,0,0)}, uVig:{value:0.34} },
   vertexShader:`varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
   fragmentShader:`
-    uniform sampler2D tDiffuse; uniform float uTime; varying vec2 vUv;
+    uniform sampler2D tDiffuse; uniform float uTime, uContrast, uSat, uVig;
+    uniform vec3 uTint, uLift; varying vec2 vUv;
     void main(){
       vec4 c = texture2D(tDiffuse, vUv);
       float l = dot(c.rgb, vec3(0.299,0.587,0.114));
-      c.rgb = mix(vec3(l), c.rgb, 1.10);                            // saturation lift
+      c.rgb = mix(vec3(l), c.rgb, uSat);                           // saturation
+      c.rgb = (c.rgb - 0.5) * uContrast + 0.5;                     // contrast
+      c.rgb = c.rgb * uTint + uLift;                               // per-zone grade
       float d = distance(vUv, vec2(0.5));
-      c.rgb *= 1.0 - 0.34*smoothstep(0.42, 0.86, d);                // vignette
+      c.rgb *= 1.0 - uVig*smoothstep(0.40, 0.88, d);               // vignette
       float n = fract(sin(dot(vUv*vec2(1420.9,1130.3), vec2(12.9898,78.233)) + uTime*61.7)*43758.5453);
-      c.rgb += (n-0.5)*0.028;                                       // grain
-      gl_FragColor = c;
+      c.rgb += (n-0.5)*0.026;                                      // grain
+      gl_FragColor = vec4(max(c.rgb,0.0), c.a);
     }`,
 });
 composer.addPass(film);
+const ZONE_GRADE = {
+  london:{tint:[0.90,0.97,1.13], con:1.13, sat:1.06, lift:[0,0.002,0.012], vig:0.36},
+  tardis:{tint:[1.08,1.00,0.93], con:1.08, sat:1.10, lift:[0.006,0.002,0], vig:0.30},
+  skaro :{tint:[1.15,1.00,0.85], con:1.14, sat:1.14, lift:[0.02,0.004,0], vig:0.34},
+  moon  :{tint:[0.90,0.97,1.14], con:1.20, sat:0.96, lift:[0,0,0.004], vig:0.30},
+  grave :{tint:[0.90,1.02,1.04], con:1.12, sat:0.82, lift:[0,0.004,0.006], vig:0.40},
+  silence:{tint:[0.92,1.01,1.08], con:1.14, sat:0.80, lift:[0,0.004,0.008], vig:0.42},
+};
+function applyGrade(id){
+  const g=ZONE_GRADE[id]||{tint:[1,1,1],con:1.1,sat:1.05,lift:[0,0,0],vig:0.34};
+  film.uniforms.uTint.value.set(...g.tint);
+  film.uniforms.uContrast.value=g.con; film.uniforms.uSat.value=g.sat;
+  film.uniforms.uLift.value.set(...g.lift); film.uniforms.uVig.value=g.vig;
+}
 // image-based lighting: subtle studio environment gives PBR materials real reflections
 const _pmrem = new THREE.PMREMGenerator(renderer);
 const ENV = _pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
@@ -98,7 +113,6 @@ function applyQuality(){
   renderer.setPixelRatio(min ? 1 : hi ? Math.min(devicePixelRatio,2) : Math.min(devicePixelRatio,1.5));
   bloom.enabled = !min;
   bloom.strength = hi ? 0.6 : 0.5;
-  gtao.enabled = hi && !G.isTouch && !min;      // ambient occlusion: desktop-high only
   film.enabled = !min;
   for(const id in G.zones){const s=G.zones[id].sun; if(s&&s.shadow){s.shadow.mapSize.setScalar(hi&&!min?2048:1024); if(s.shadow.map){s.shadow.map.dispose();s.shadow.map=null;}}}
   renderer.shadowMap.enabled = true;

@@ -59,6 +59,10 @@
   #goldvig{position:fixed;inset:0;pointer-events:none;background:radial-gradient(ellipse at center,transparent 30%,rgba(230,180,60,.5) 100%);opacity:0;transition:opacity .6s;z-index:9}
   #minimap{position:absolute;right:24px;top:22px;width:148px;height:148px;border-radius:50%;border:1.5px solid rgba(122,170,235,.35);background:rgba(6,10,20,.55);box-shadow:0 0 20px rgba(0,0,0,.5)}
   #zonechip{position:absolute;right:24px;top:178px;width:148px;text-align:center;font-size:10px;letter-spacing:.26em;color:#8fa5c8;text-transform:uppercase}
+  #siltally{position:absolute;right:24px;top:210px;width:148px;text-align:center;color:#c86a6a}
+  #siltally-marks{display:block;font-size:22px;letter-spacing:2px;line-height:1;font-family:'Courier New',monospace;color:#e08a8a;text-shadow:0 0 8px rgba(200,60,60,.5);min-height:24px}
+  #siltally small{font-size:9px;letter-spacing:.28em;color:#8a6a6a}
+  #forgetvig{position:fixed;inset:0;pointer-events:none;background:radial-gradient(ellipse at center,rgba(20,10,30,0) 30%,rgba(10,6,20,.9) 100%);opacity:0;transition:opacity .1s;z-index:9;mix-blend-mode:multiply}
   #sonicring{position:absolute;left:50%;top:50%;width:56px;height:56px;margin:-28px;pointer-events:none}
 
   /* ---------- dialogue ---------- */
@@ -147,16 +151,18 @@
   <div id="xh"></div>
   <canvas id="gauge" width="208" height="208"></canvas>
   <div id="gauge-label">Regeneration</div>
-  <div id="frags"><div class="frag"></div><div class="frag"></div><div class="frag"></div><div class="frag"></div></div>
+  <div id="frags"><div class="frag"></div><div class="frag"></div><div class="frag"></div><div class="frag"></div><div class="frag"></div></div>
   <div id="objective"><small>Objective</small><span id="obj-text"></span></div>
   <div id="prompt" class="hidden"></div>
   <div id="banter"></div>
   <div id="toast"><div class="t1"></div><div class="t2"></div></div>
   <canvas id="minimap" width="296" height="296"></canvas>
   <div id="zonechip"></div>
+  <div id="siltally" class="hidden"><span id="siltally-marks"></span><small>REMEMBERED</small></div>
 </div>
 <div id="vig"></div>
 <div id="goldvig"></div>
+<div id="forgetvig"></div>
 
 <div id="dlg" class="ov hidden">
   <div id="dlg-panel">

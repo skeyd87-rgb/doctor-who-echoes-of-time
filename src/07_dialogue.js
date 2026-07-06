@@ -17,6 +17,16 @@ function startAutonQuest(){
 function startDalekQuest(){ G.flags.dalekQuest=true; G.flags.daleksDown=G.flags.daleksDown||0; }
 function startMoonQuest(){ G.flags.moonQuest=true; G.flags.regsFixed=0; G.zones.moon.waveT=8; }
 function startGraveQuest(){ G.flags.graveQuest=true; banter('b_grave','Statues that move when you\'re not looking. Right. I\'m never blinking again. Ever.',1.2); }
+function startSilenceQuest(){ if(G.flags.silenceQuest) return; G.flags.silenceQuest=true; G.flags.silBanished=0;
+  banter('b_silstart','Doctor— there\'s something in here. I keep— I keep losing my train of— what was I saying?',1.4); }
+function playSilenceRecording(){
+  G.flags.silencePlayed=true;
+  A.blip(300,0.1,0.1,'square');
+  say('Recording','"You should kill us all on sight."', 4.5, 'gold');
+  try{ if(G.voice){ const u=new SpeechSynthesisUtterance('You should kill us all on sight.'); u.rate=0.9; u.pitch=0.4; u.volume=0.9; speechSynthesis.cancel(); speechSynthesis.speak(u);} }catch(e){}
+  setTimeout(()=>{ G.zones.silence.fragSil.root.visible=true; A.chime();
+    banter('b_silfrag','There— on the console. The recording shook something loose. A fragment. Grab it and let\'s NEVER come back.',1.5); }, 3200);
+}
 
 function startRepair(reg){
   G.channel={type:'repair', reg, t:0, need:2.4, x:reg.x, z:reg.z,
@@ -38,8 +48,10 @@ function startDoorUnseal(){
     }};
 }
 
+const FRAG_KEYS=['fragLondon','fragSkaro','fragMoon','fragGrave','fragSilence'];
+const FRAG_TOTAL=FRAG_KEYS.length;
 function recountFragments(){
-  G.fragments=['fragLondon','fragSkaro','fragMoon','fragGrave'].reduce((n,f)=>n+(G.flags[f]?1:0),0);
+  G.fragments=FRAG_KEYS.reduce((n,f)=>n+(G.flags[f]?1:0),0);
 }
 function onQuestEvent(type, data){
   const F=G.flags;
@@ -56,6 +68,10 @@ function onQuestEvent(type, data){
       banter('b_gate','Patrol\'s down. That big black one by the gate hasn\'t moved... I hate it already.',1); }}
   if(type==='secDown'){ F.secDown=true; banter('b_sec','THAT one. That one was the scary one. Pedestal\'s all yours, Doctor.',1); }
   if(type==='cyberDown'){ F.cybersDown=(F.cybersDown||0)+1; }
+  if(type==='silenceBanished'){ F.silBanished=(F.silBanished||0)+1;
+    if(F.silBanished===1) banter('b_sil1','It just— dissolved. And now I can barely remember it was ever there. This place is WRONG.');
+    if(F.silBanished>=5 && !F.silenceDone){ F.silenceDone=true;
+      banter('b_sildone','That\'s the last one I can find. Okoro\'s reel-to-reel by the console — she said it holds a warning. Play it.',1.4); } }
   if(type==='regFixed'){
     if(F.regsFixed>=3 && !F.moonDone){ F.moonDone=true;
       banter('b_moondone','Gravity\'s holding! Okafor says the pod they crashed in is still out in the big crater.',1.2); }
@@ -64,9 +80,10 @@ function onQuestEvent(type, data){
   if(type==='fragment'){
     recountFragments();
     if(G.fragments===1) banter('b_frag1','So that\'s a piece of the time rupture? It\'s beautiful. In a "probably deadly" way.',1.5);
-    if(G.fragments===2) banter('b_frag2','Two of four. Halfway to saving the universe before tea.',1.5);
-    if(G.fragments===3) banter('b_frag3','Three! One more, Doctor. I can feel the TARDIS getting impatient from here.',1.5);
-    if(G.fragments>=4){ A.bell(); banter('b_frag4','That\'s ALL of them! The console — the rupture — let\'s go home the long way round!',1.8); }
+    if(G.fragments===2) banter('b_frag2','Two of five. Saving the universe, one shard at a time.',1.5);
+    if(G.fragments===3) banter('b_frag3','Three! Getting there, Doctor. I can feel the TARDIS getting impatient from here.',1.5);
+    if(G.fragments===4) banter('b_frag4b','Four down, one to go. So close I can taste the vortex. Or that\'s the chips again.',1.5);
+    if(G.fragments>=FRAG_TOTAL){ A.bell(); banter('b_frag5','That\'s ALL of them! The console — the rupture — let\'s go home the long way round!',1.8); }
     saveGame();
   }
 }
@@ -74,7 +91,7 @@ function onQuestEvent(type, data){
 /* ---------- objectives ---------- */
 function currentObjective(){
   const F=G.flags, id=G.zone?G.zone.id:'';
-  if(G.fragments>=4 && !F.ended) return id==='tardis' ? 'Pull the lever — seal the time rupture' : 'Return to the TARDIS console';
+  if(G.fragments>=FRAG_TOTAL && !F.ended) return id==='tardis' ? 'Pull the lever — seal the time rupture' : 'Return to the TARDIS console';
   switch(id){
     case 'london':
       if(!F.metHarlan&&!F.autonsActive) return 'Explore the street — talk to the locals';
@@ -100,6 +117,13 @@ function currentObjective(){
       if(F.mausoleumOpen&&!F.fragGrave) return 'Take the fragment from the crypt — keep watching the angels';
       if(F.fragGrave&&!F.toldEllie) return 'Return to Ellie — walking backwards is allowed';
       return 'The angels are only statues. Probably.';
+    case 'silence':
+      if(!F.metOkoro) return 'Someone is muttering in the dark — find them';
+      if(F.silenceQuest&&(F.silBanished||0)<5) return `Banish The Silence — ${F.silBanished||0} / 5 · LOOK at one, then hold the sonic`;
+      if(F.silenceDone&&!F.silencePlayed) return 'Play the reel-to-reel recording by the console';
+      if(F.silencePlayed&&!F.fragSilence) return 'Take the fragment from the console';
+      if(!F.silenceQuest) return 'Agent Okoro is trying to tell you something';
+      return 'The Silence are gone. You think.';
   }
   return 'Explore';
 }
@@ -184,7 +208,8 @@ alf:{ start:()=>'n0',
 }},
 
 riley:{ start:()=>{ const id=G.zone.id;
-    if(G.fragments>=4) return 'final';
+    if(G.fragments>=FRAG_TOTAL) return 'final';
+    if(id==='silence') return 'silence';
     if(id==='grave') return 'grave';
     if(id==='skaro') return 'skaro';
     if(id==='moon') return 'moon';
@@ -211,7 +236,11 @@ riley:{ start:()=>{ const id=G.zone.id;
     o:[{t:'Because someone here needs help. That\'s always why.', next:'g2'},{t:'Blink with one eye at a time. Old trick.', next:'g3'}]},
   g2:{t:'"Someone needs help." Yeah. That\'s why I got in the box. Okay. Watching the statues. Both eyes OPEN.'},
   g3:{t:'One eye at a— that actually works?! You\'re making that up. You\'re NOT making that up?!'},
-  final:{t:'Four fragments, one console, and a universe that gets to keep existing because a madman with a box said "no". Come on, Doctor. Lever time. Take us home the scenic way.'},
+  silence:{t:'I hate it here. I keep turning round and there\'s a— a— sorry, there\'s a WHAT? See, that\'s the problem, I lose the sentence halfway th— Doctor, are we alone in here? We\'re not, are we.',
+    o:[{t:'No. Keep your eyes moving. Trust the tally, not your memory.', next:'si2'},{t:'Stay in the light. Look at everything twice.', next:'si3'}]},
+  si2:{t:'"Trust the tally not your memory." That\'s the worst fortune cookie I\'ve ever— okay. Eyes moving. Counting. God, I hate this place, and I\'ll have forgotten why in a minute.'},
+  si3:{t:'Look at everything twice. Right. Because once isn\'t creepy enough. ...Behind that pillar. LOOK at the pillar, Doctor. Don\'t ask me why, I already can\'t remember, just LOOK.'},
+  final:{t:'Five fragments, one console, and a universe that gets to keep existing because a madman with a box said "no". Come on, Doctor. Lever time. Take us home the scenic way.'},
 }},
 
 veyra:{ start:()=> G.flags.secDown?'post': (G.flags.daleksDown||0)>=5?'gate': G.flags.dalekQuest?'mid': 'n0',
@@ -283,5 +312,25 @@ ellie:{ start:()=> G.flags.toldEllie?'end2': G.flags.fragGrave?'end': G.flags.gr
     o:[{t:'The angels send you back. Sam landed in 1958 — and he built a good life there. He never stopped being your brother, Ellie.', next:'end3'},{t:'(Say nothing. Let her read it again.)', next:'end3'}]},
   end3:{t:'Eighty-one. June. An apple tree. I\'m going to go home, and sleep, and then I\'m going to find June\'s family and ask for every photograph they\'ve got. Thank you. Whatever you are — thank you for making the world make sense sideways.'},
   end2:{t:'I picked an apple from Sam\'s tree on the way out. It\'s the best apple I\'ve ever had, and I cried the whole time. Take care of yourself, Doctor. Watch the statues.'},
+}},
+
+okoro:{ start:()=> G.flags.fragSilence?'end': G.flags.silencePlayed?'played': G.flags.silenceDone?'done': G.flags.silenceQuest?'mid': 'n0',
+ nodes:{
+  n0:{t:'Don\'t— don\'t look away from me. If you look away you\'ll forget I\'m— Agent Okoro. Yaxley Facility. I\'ve been here... I don\'t know how long. There are marks on my arm and I don\'t remember making them.', do:()=>{G.flags.metOkoro=true;},
+    o:[{t:'Marks? Show me your arm.', next:'n1'},{t:'What is this place, Agent?', next:'n2'}]},
+  n1:{t:'Tally marks. Dozens. One every time I— every time I SEE one. And the moment I look away, it\'s gone from my head, so I mark my skin to remember it happened. I\'m a filing cabinet for things I can\'t keep.',
+    r:'Doctor... I\'ve got a tally on the HUD now. Every time I look at one of them it ticks up. What ARE they?', next:'n3'},
+  n2:{t:'Government listening post. Or it was, in \'69. Then THEY moved in — tall, grey, in suits. You only remember them while you\'re staring right at them. Turn around and it\'s like they were never born.', next:'n3'},
+  n3:{t:'They\'ve been here so long nobody remembers building the place around them. That\'s their trick — they don\'t hide, they just... slip out of memory. But there\'s a recording. I made it, I think. For myself. For anyone.',
+    o:[{t:'How do I fight something I can\'t remember?', next:'n4'},{t:'What\'s on the recording?', next:'n5'}]},
+  n4:{t:'Your little torch — the blue one. When you\'re LOOKING at one, it can\'t slip away, and your torch scrambles whatever holds it here. Look, then burn it. Don\'t turn your back. Don\'t— sorry, what were we— the torch. Use the torch.',
+    do:()=>startSilenceQuest()},
+  n5:{t:'A warning. Four words. I don\'t remember recording it but it\'s my voice. Deal with them first — LOOK at each one and hold your torch on it till it\'s gone — then play it. It only makes sense once they\'re not in your head.',
+    do:()=>startSilenceQuest()},
+  mid:{t:(()=>`${5-(G.flags.silBanished||0)} of them still in here that I know of. Keep your eyes ON them, Doctor. The moment you doubt one was ever real — that\'s when it has you.`)},
+  done:{t:'It\'s... quieter. My head is quieter. Did you— I think you did something. The reel-to-reel by the console. Play it now. I finally want to hear what I was trying to tell myself.'},
+  played:{t:'"Kill us all on sight." That was the whole message. God. I\'ve been living with these things because I could never remember to be afraid of them long enough to run. Take your shard, Doctor. Take it and go.',
+    r:'Four words. She recorded four words to herself across who-knows-how-many forgettings. That\'s the bravest filing cabinet in the universe.'},
+  end:{t:'I\'m walking out of here in daylight and I am going to write EVERYTHING down. Notebooks. Tattoos if I have to. You gave me back my own head, Doctor. I won\'t waste it.'},
 }},
 };
